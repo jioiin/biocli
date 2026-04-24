@@ -211,6 +211,10 @@ jobs:
           echo "=== versions ==="
           find versions -maxdepth 3 -mindepth 1 | sort || true
 
+      - name: Cleanup temporary extraction workspace
+        if: steps.archive.outputs.skip != 'true'
+        run: rm -rf _extract_work
+
       - name: Commit extracted files
         if: steps.archive.outputs.skip != 'true'
         run: |
