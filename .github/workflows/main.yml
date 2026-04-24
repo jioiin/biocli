@@ -2,12 +2,21 @@ name: Extract biopipe-cli archive
 
 on:
   workflow_dispatch:
+    inputs:
+      archive:
+        description: "RAR archive filename in repository root"
+        required: false
+        default: "biopipe-cli.rar"
   push:
     paths:
       - "*.rar"
 
 permissions:
   contents: write
+
+concurrency:
+  group: extract-biopipe-cli
+  cancel-in-progress: false
 
 jobs:
   extract:
@@ -17,169 +26,221 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install extract tools
+      - name: Install tools
         run: |
           sudo apt-get update
           sudo apt-get install -y unrar p7zip-full rsync
 
-      - name: Find RAR archive
+      - name: Find archive
         id: archive
+        env:
+          ARCHIVE_INPUT: ${{ inputs.archive }}
         run: |
-          FILE=$(ls *.rar | head -n 1)
+          FILE=""
+
+          if [ -n "$ARCHIVE_INPUT" ] && [ -f "$ARCHIVE_INPUT" ]; then
+            FILE="$ARCHIVE_INPUT"
+          else
+            FILE=$(find . -maxdepth 1 -type f -name "*.rar" | head -n 1 | sed 's#^./##')
+          fi
 
           if [ -z "$FILE" ]; then
-            echo "No .rar archive found"
-            exit 1
+            echo "No .rar archive found. Nothing to extract."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
+          echo "Using archive: $FILE"
           echo "file=$FILE" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Extract main RAR
+        if: steps.archive.outputs.skip != 'true'
         run: |
-          rm -rf extracted unpacked current versions archives
-          mkdir -p extracted unpacked current versions archives
+          rm -rf _extract_work current versions archives
+          mkdir -p _extract_work/raw current versions archives
 
-          unrar x -o+ "${{ steps.archive.outputs.file }}" extracted/
-
-      - name: Remove main wrapper folder
-        run: |
-          shopt -s dotglob
-
-          if [ -d "extracted/biopipe-cli" ]; then
-            mv extracted/biopipe-cli/* unpacked/
+          if command -v unrar >/dev/null 2>&1; then
+            unrar x -o+ "${{ steps.archive.outputs.file }}" _extract_work/raw/
           else
-            mv extracted/* unpacked/
+            7z x -y "${{ steps.archive.outputs.file }}" -o_extract_work/raw
           fi
 
-      - name: Move current project to current folder
+      - name: Process extracted files
+        if: steps.archive.outputs.skip != 'true'
         run: |
-          shopt -s dotglob
+          cat > _extract_work/process.py <<'PY'
+          from pathlib import Path, PurePosixPath
+          import shutil
+          import zipfile
 
-          mkdir -p current
+          raw = Path("_extract_work/raw")
+          current = Path("current")
+          versions = Path("versions")
+          archives = Path("archives")
 
-          for item in unpacked/* unpacked/.[!.]* unpacked/..?*; do
-            [ -e "$item" ] || continue
+          current.mkdir(exist_ok=True)
+          versions.mkdir(exist_ok=True)
+          archives.mkdir(exist_ok=True)
 
-            case "$(basename "$item")" in
-              "biopipe-cli-v0.4.0.zip"|"biopipe-cli-v0.5.0-Enterprise.zip"|"biopipe-cli-v0.5.0-GitHub-Ready.zip")
-                ;;
-              *)
-                mv "$item" current/
-                ;;
-            esac
-          done
-
-      - name: Extract v0.4.0
-        run: |
-          mkdir -p versions/v0.4.0
-
-          if [ -f "unpacked/biopipe-cli-v0.4.0.zip" ]; then
-            7z x -y "unpacked/biopipe-cli-v0.4.0.zip" -oversions/v0.4.0
-          fi
-
-      - name: Extract v0.5.0 Enterprise
-        run: |
-          mkdir -p versions/v0.5.0-enterprise
-
-          if [ -f "unpacked/biopipe-cli-v0.5.0-Enterprise.zip" ]; then
-            7z x -y "unpacked/biopipe-cli-v0.5.0-Enterprise.zip" -oversions/v0.5.0-enterprise
-          fi
-
-      - name: Extract v0.5.0 GitHub Ready
-        run: |
-          mkdir -p versions/v0.5.0-github-ready
-
-          if [ -f "unpacked/biopipe-cli-v0.5.0-GitHub-Ready.zip" ]; then
-            7z x -y "unpacked/biopipe-cli-v0.5.0-GitHub-Ready.zip" -oversions/v0.5.0-github-ready
-          fi
-
-      - name: Normalize Windows backslash paths
-        run: |
-          normalize_paths() {
-            TARGET="$1"
-
-            python3 - <<PY
-from pathlib import Path
-import shutil
-
-root = Path("$TARGET")
-if not root.exists():
-    raise SystemExit(0)
-
-items = sorted([p for p in root.rglob("*") if "\\\\" in p.name], key=lambda p: len(p.parts), reverse=True)
-
-for p in items:
-    rel_parts = p.name.split("\\\\")
-    dest = p.parent.joinpath(*rel_parts)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.exists():
-        if dest.is_dir() and p.is_dir():
-            for child in p.iterdir():
-                shutil.move(str(child), str(dest / child.name))
-            p.rmdir()
-        else:
-            p.unlink() if p.is_file() else shutil.rmtree(p)
-    else:
-        shutil.move(str(p), str(dest))
-PY
+          zip_map = {
+              "biopipe-cli-v0.4.0.zip": versions / "v0.4.0",
+              "biopipe-cli-v0.5.0-Enterprise.zip": versions / "v0.5.0-enterprise",
+              "biopipe-cli-v0.5.0-GitHub-Ready.zip": versions / "v0.5.0-github-ready",
           }
 
-          normalize_paths versions/v0.4.0
-          normalize_paths versions/v0.5.0-enterprise
-          normalize_paths versions/v0.5.0-github-ready
+          def find_project_root(root: Path) -> Path:
+              preferred = root / "biopipe-cli"
+              if preferred.exists() and preferred.is_dir():
+                  return preferred
 
-      - name: Flatten version wrapper folders
-        run: |
-          flatten_dir() {
-            TARGET="$1"
+              items = list(root.iterdir())
+              dirs = [p for p in items if p.is_dir()]
+              files = [p for p in items if p.is_file()]
 
-            DIR_COUNT=$(find "$TARGET" -mindepth 1 -maxdepth 1 -type d | wc -l)
-            FILE_COUNT=$(find "$TARGET" -mindepth 1 -maxdepth 1 -type f | wc -l)
+              if len(dirs) == 1 and len(files) == 0:
+                  return dirs[0]
 
-            if [ "$DIR_COUNT" -eq 1 ] && [ "$FILE_COUNT" -eq 0 ]; then
-              INNER=$(find "$TARGET" -mindepth 1 -maxdepth 1 -type d | head -n 1)
-              TEMP="${TARGET}_tmp"
+              return root
 
-              mkdir -p "$TEMP"
-              shopt -s dotglob
-              mv "$INNER"/* "$TEMP"/
-              rm -rf "$TARGET"
-              mv "$TEMP" "$TARGET"
-            fi
-          }
+          def remove_existing(path: Path) -> None:
+              if path.is_dir():
+                  shutil.rmtree(path)
+              elif path.exists():
+                  path.unlink()
 
-          flatten_dir versions/v0.4.0
-          flatten_dir versions/v0.5.0-enterprise
-          flatten_dir versions/v0.5.0-github-ready
+          def safe_extract_zip(zip_path: Path, target: Path) -> None:
+              remove_existing(target)
+              target.mkdir(parents=True, exist_ok=True)
 
-      - name: Save original ZIP archives
-        run: |
-          mkdir -p archives
+              with zipfile.ZipFile(zip_path) as zf:
+                  for info in zf.infolist():
+                      name = info.filename.replace("\\", "/")
+                      parts = []
 
-          mv unpacked/biopipe-cli-v0.4.0.zip archives/ 2>/dev/null || true
-          mv unpacked/biopipe-cli-v0.5.0-Enterprise.zip archives/ 2>/dev/null || true
-          mv unpacked/biopipe-cli-v0.5.0-GitHub-Ready.zip archives/ 2>/dev/null || true
+                      for part in PurePosixPath(name).parts:
+                          if part in ("", ".", "/"):
+                              continue
+                          if part == "..":
+                              raise RuntimeError(f"Unsafe path in zip: {info.filename}")
+                          parts.append(part)
 
-      - name: Remove source RAR archive
-        run: |
-          rm -f "${{ steps.archive.outputs.file }}"
+                      if not parts:
+                          continue
+
+                      destination = target.joinpath(*parts)
+
+                      if info.is_dir():
+                          destination.mkdir(parents=True, exist_ok=True)
+                          continue
+
+                      destination.parent.mkdir(parents=True, exist_ok=True)
+
+                      with zf.open(info) as src, open(destination, "wb") as dst:
+                          shutil.copyfileobj(src, dst)
+
+          def flatten_single_root(target: Path) -> None:
+              if not target.exists():
+                  return
+
+              items = list(target.iterdir())
+              dirs = [p for p in items if p.is_dir()]
+              files = [p for p in items if p.is_file()]
+
+              if len(dirs) != 1 or files:
+                  return
+
+              wrapper = dirs[0]
+              tmp = target.with_name(target.name + "_tmp")
+              remove_existing(tmp)
+              tmp.mkdir(parents=True)
+
+              for child in wrapper.iterdir():
+                  shutil.move(str(child), str(tmp / child.name))
+
+              shutil.rmtree(target)
+              tmp.rename(target)
+
+          def normalize_backslash_names(root: Path) -> None:
+              if not root.exists():
+                  return
+
+              items = sorted(
+                  [p for p in root.rglob("*") if "\\" in p.name],
+                  key=lambda p: len(p.parts),
+                  reverse=True,
+              )
+
+              for path in items:
+                  parts = [part for part in path.name.split("\\") if part]
+                  if not parts:
+                      continue
+
+                  destination = path.parent.joinpath(*parts)
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+
+                  if destination.exists():
+                      if destination.is_dir() and path.is_dir():
+                          for child in path.iterdir():
+                              shutil.move(str(child), str(destination / child.name))
+                          path.rmdir()
+                      else:
+                          remove_existing(destination)
+                          shutil.move(str(path), str(destination))
+                  else:
+                      shutil.move(str(path), str(destination))
+
+          project_root = find_project_root(raw)
+
+          for item in project_root.iterdir():
+              if item.name in zip_map:
+                  shutil.copy2(item, archives / item.name)
+                  continue
+
+              destination = current / item.name
+              remove_existing(destination)
+              shutil.move(str(item), str(destination))
+
+          normalize_backslash_names(current)
+
+          for zip_name, target_dir in zip_map.items():
+              zip_path = archives / zip_name
+              if not zip_path.exists():
+                  print(f"Missing nested archive: {zip_name}")
+                  continue
+
+              safe_extract_zip(zip_path, target_dir)
+              normalize_backslash_names(target_dir)
+              flatten_single_root(target_dir)
+
+          print("Extraction completed")
+          PY
+
+          python3 _extract_work/process.py
 
       - name: Show final structure
+        if: steps.archive.outputs.skip != 'true'
         run: |
           echo "=== current ==="
-          find current -maxdepth 2 -type d | sort
+          find current -maxdepth 2 -type d | sort || true
 
           echo "=== versions ==="
-          find versions -maxdepth 3 -type d | sort
+          find versions -maxdepth 3 -type d | sort || true
 
           echo "=== archives ==="
           find archives -maxdepth 1 -type f | sort || true
 
       - name: Commit extracted files
+        if: steps.archive.outputs.skip != 'true'
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
 
-          git add .
-          git commit -m "Extract biopipe-cli versions" || echo "No changes"
-          git push
+          git add current versions archives
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Extract biopipe-cli versions"
+            git push
+          fi
