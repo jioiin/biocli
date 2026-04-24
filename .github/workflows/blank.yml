@@ -1,0 +1,213 @@
+name: Extract biopipe-cli archive
+
+on:
+  workflow_dispatch:
+    inputs:
+      archive:
+        description: "RAR archive filename in repository root"
+        required: false
+        default: "biopipe-cli.rar"
+
+  push:
+    paths:
+      - "*.rar"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: extract-biopipe-cli
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full rsync
+
+      - name: Find archive
+        id: archive
+        env:
+          ARCHIVE_INPUT: ${{ inputs.archive }}
+        run: |
+          FILE=""
+
+          if [ -n "$ARCHIVE_INPUT" ] && [ -f "$ARCHIVE_INPUT" ]; then
+            FILE="$ARCHIVE_INPUT"
+          else
+            FILE=$(find . -maxdepth 1 -type f -name "*.rar" | head -n 1 | sed 's#^\./##')
+          fi
+
+          if [ -z "$FILE" ]; then
+            echo "No .rar archive found. Nothing to extract."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Using archive: $FILE"
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Extract main RAR
+        if: steps.archive.outputs.skip != 'true'
+        run: |
+          rm -rf _extract_work current versions archives
+          mkdir -p _extract_work/raw current versions archives
+
+          7z x -y "${{ steps.archive.outputs.file }}" -o_extract_work/raw
+
+      - name: Process archive structure
+        if: steps.archive.outputs.skip != 'true'
+        run: |
+          python3 <<'PY'
+          from pathlib import Path, PurePosixPath
+          import shutil
+          import zipfile
+
+          raw = Path("_extract_work/raw")
+          current = Path("current")
+          versions = Path("versions")
+          archives = Path("archives")
+
+          current.mkdir(exist_ok=True)
+          versions.mkdir(exist_ok=True)
+          archives.mkdir(exist_ok=True)
+
+          ZIP_MAP = {
+              "biopipe-cli-v0.4.0.zip": versions / "v0.4.0",
+              "biopipe-cli-v0.5.0-Enterprise.zip": versions / "v0.5.0-enterprise",
+              "biopipe-cli-v0.5.0-GitHub-Ready.zip": versions / "v0.5.0-github-ready",
+          }
+
+          def find_project_root(root: Path) -> Path:
+              items = [p for p in root.iterdir()]
+              dirs = [p for p in items if p.is_dir()]
+              files = [p for p in items if p.is_file()]
+
+              if len(dirs) == 1 and len(files) == 0:
+                  return dirs[0]
+
+              preferred = root / "biopipe-cli"
+              if preferred.exists() and preferred.is_dir():
+                  return preferred
+
+              return root
+
+          def safe_extract_zip(zip_path: Path, target: Path) -> None:
+              target.mkdir(parents=True, exist_ok=True)
+
+              with zipfile.ZipFile(zip_path) as zf:
+                  for info in zf.infolist():
+                      name = info.filename.replace("\\", "/")
+                      parts = []
+
+                      for part in PurePosixPath(name).parts:
+                          if part in ("", ".", "/"):
+                              continue
+                          if part == "..":
+                              raise RuntimeError(f"Unsafe path in zip: {info.filename}")
+                          parts.append(part)
+
+                      if not parts:
+                          continue
+
+                      dest = target.joinpath(*parts)
+
+                      if info.is_dir():
+                          dest.mkdir(parents=True, exist_ok=True)
+                          continue
+
+                      dest.parent.mkdir(parents=True, exist_ok=True)
+
+                      with zf.open(info) as src, open(dest, "wb") as dst:
+                          shutil.copyfileobj(src, dst)
+
+          def flatten_single_root(target: Path) -> None:
+              if not target.exists():
+                  return
+
+              items = [p for p in target.iterdir()]
+              dirs = [p for p in items if p.is_dir()]
+              files = [p for p in items if p.is_file()]
+
+              if len(dirs) == 1 and len(files) == 0:
+                  wrapper = dirs[0]
+                  tmp = target.with_name(target.name + "_tmp")
+
+                  if tmp.exists():
+                      shutil.rmtree(tmp)
+
+                  tmp.mkdir(parents=True)
+
+                  for child in wrapper.iterdir():
+                      shutil.move(str(child), str(tmp / child.name))
+
+                  shutil.rmtree(target)
+                  tmp.rename(target)
+
+          project_root = find_project_root(raw)
+
+          for item in project_root.iterdir():
+              if item.name in ZIP_MAP:
+                  shutil.copy2(item, archives / item.name)
+                  continue
+
+              destination = current / item.name
+
+              if destination.exists():
+                  if destination.is_dir():
+                      shutil.rmtree(destination)
+                  else:
+                      destination.unlink()
+
+              shutil.move(str(item), str(destination))
+
+          for zip_name, target_dir in ZIP_MAP.items():
+              zip_path = archives / zip_name
+
+              if not zip_path.exists():
+                  print(f"Missing nested archive: {zip_name}")
+                  continue
+
+              if target_dir.exists():
+                  shutil.rmtree(target_dir)
+
+              safe_extract_zip(zip_path, target_dir)
+              flatten_single_root(target_dir)
+
+          print("Extraction completed")
+          PY
+
+      - name: Show final structure
+        if: steps.archive.outputs.skip != 'true'
+        run: |
+          echo "=== current ==="
+          find current -maxdepth 2 -type d | sort || true
+
+          echo "=== versions ==="
+          find versions -maxdepth 3 -type d | sort || true
+
+          echo "=== archives ==="
+          find archives -maxdepth 1 -type f | sort || true
+
+      - name: Commit extracted files
+        if: steps.archive.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+
+          git add current versions archives
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Extract biopipe-cli versions"
+            git push
+          fi
