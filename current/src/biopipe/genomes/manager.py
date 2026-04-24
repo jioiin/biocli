@@ -8,6 +8,7 @@ One-command genome setup:
 
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 import shutil
@@ -40,51 +41,69 @@ class GenomePaths:
 
 # ── Genome Registry ─────────────────────────────────────────────────────────
 
-GENOME_REGISTRY: dict[str, dict[str, str]] = {
+GENOME_REGISTRY: dict[str, dict[str, Any]] = {
     "hg38": {
         "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz",
         "description": "Human GRCh38/hg38 (no alt, analysis set)",
         "size_gb": 3.0,
+        "sha256": None,
+        "secure_supported": False,
     },
     "hg19": {
         "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.14_GRCh37.p13/GCA_000001405.14_GRCh37.p13_assembly_structure/Primary_Assembly/assembled_chromosomes/FASTA/",
         "description": "Human GRCh37/hg19",
         "size_gb": 3.0,
+        "sha256": None,
+        "secure_supported": False,
     },
     "mm39": {
         "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/635/GCA_000001635.9_GRCm39/GCA_000001635.9_GRCm39_genomic.fna.gz",
         "description": "Mouse GRCm39/mm39",
         "size_gb": 2.7,
+        "sha256": None,
+        "secure_supported": False,
     },
     "mm10": {
         "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/635/GCA_000001635.8_GRCm38.p6/GCA_000001635.8_GRCm38.p6_genomic.fna.gz",
         "description": "Mouse GRCm38/mm10",
         "size_gb": 2.7,
+        "sha256": None,
+        "secure_supported": False,
     },
     "dm6": {
         "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/215/GCA_000001215.4_Release_6_plus_ISO1_MT/GCA_000001215.4_Release_6_plus_ISO1_MT_genomic.fna.gz",
         "description": "Drosophila melanogaster dm6",
         "size_gb": 0.14,
+        "sha256": None,
+        "secure_supported": False,
     },
     "sacCer3": {
         "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/146/045/GCF_000146045.2_R64/GCF_000146045.2_R64_genomic.fna.gz",
         "description": "Saccharomyces cerevisiae R64 (yeast)",
         "size_gb": 0.012,
+        "sha256": None,
+        "secure_supported": False,
     },
     "danRer11": {
         "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/002/035/GCF_000002035.6_GRCz11/GCF_000002035.6_GRCz11_genomic.fna.gz",
         "description": "Zebrafish GRCz11/danRer11",
         "size_gb": 1.4,
+        "sha256": None,
+        "secure_supported": False,
     },
     "ce11": {
         "url": "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/002/985/GCF_000002985.6_WBcel235/GCF_000002985.6_WBcel235_genomic.fna.gz",
         "description": "C. elegans WBcel235/ce11",
         "size_gb": 0.1,
+        "sha256": None,
+        "secure_supported": False,
     },
     "t2t-chm13": {
         "url": "https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/analysis_set/chm13v2.0.fa.gz",
         "description": "Human T2T-CHM13v2.0 (telomere-to-telomere)",
         "size_gb": 3.1,
+        "sha256": None,
+        "secure_supported": False,
     },
 }
 
@@ -145,7 +164,12 @@ class GenomeManager:
         paths.indexed = all([paths.fai, paths.dict_file, paths.bwa_index])
         return paths
 
-    def download(self, genome: str, callback: Any = None) -> GenomePaths:
+    def download(
+        self,
+        genome: str,
+        callback: Any = None,
+        secure_profile: bool = False,
+    ) -> GenomePaths:
         """Download a reference genome from NCBI/source.
 
         Args:
@@ -182,6 +206,8 @@ class GenomeManager:
                     ["curl", "-sL", "-o", str(fasta_gz), info["url"]],
                     check=True, timeout=3600,
                 )
+
+            self._verify_download_integrity(genome, info, fasta_gz, secure_profile)
 
             # Decompress
             if callback:
@@ -244,6 +270,52 @@ class GenomeManager:
         """Check if all indices exist."""
         paths = self.status(genome)
         return paths.indexed if paths else False
+
+    def _verify_download_integrity(
+        self,
+        genome: str,
+        info: dict[str, Any],
+        fasta_gz: Path,
+        secure_profile: bool,
+    ) -> None:
+        """Verify downloaded archive hash before decompressing."""
+        if secure_profile and info.get("secure_supported") is False:
+            raise ValueError(
+                f"Secure profile unsupported for genome '{genome}': "
+                "source is not marked as checksum-stable."
+            )
+
+        expected_sha256 = self._expected_sha256(info)
+        if expected_sha256 is None:
+            if secure_profile:
+                raise ValueError(
+                    f"Secure profile unsupported for genome '{genome}': "
+                    "stable checksum is not configured."
+                )
+            return
+
+        actual_sha256 = self._sha256_file(fasta_gz)
+        if actual_sha256 != expected_sha256:
+            fasta_gz.unlink(missing_ok=True)
+            raise ValueError(
+                f"SHA256 mismatch for genome '{genome}': "
+                f"expected {expected_sha256}, got {actual_sha256}."
+            )
+
+    def _expected_sha256(self, info: dict[str, Any]) -> str | None:
+        """Return expected archive SHA256 from registry metadata."""
+        expected = info.get("sha256")
+        if expected is None:
+            return None
+        return str(expected).strip().lower()
+
+    def _sha256_file(self, path: Path) -> str:
+        """Calculate SHA256 for a local file."""
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest()
 
     def format_list(self) -> str:
         """Format genome list for display."""
