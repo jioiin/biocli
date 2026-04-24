@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "biopipe-cli"
+version = "0.5.0"
+description = "Local AI agent for bioinformatics pipeline generation — 100% offline, HIPAA-safe"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "BioPipe Contributors"}
+]
+keywords = [
+    "bioinformatics", "ngs", "cli", "llm", "pipeline",
+    "genomics", "rna-seq", "wgs", "ollama", "local-ai",
+    "wasm", "sandbox", "hipaa"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
+]
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "openai>=1.0.0",
+    "prompt-toolkit>=3.0.0",
+    "psutil>=5.9.0",
+]
+
+[project.optional-dependencies]
+rag = ["chromadb>=0.4.0"]
+wasm = ["wasmtime>=20.0.0"]
+all = ["biopipe-cli[rag,wasm]"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10",
+    "bandit>=1.7.5",
+    "wasmtime>=20.0.0",
+]
+
+[project.scripts]
+biopipe = "biopipe.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/YOUR_USERNAME/biopipe-cli"
+Documentation = "https://github.com/YOUR_USERNAME/biopipe-cli#readme"
+Repository = "https://github.com/YOUR_USERNAME/biopipe-cli"
+Issues = "https://github.com/YOUR_USERNAME/biopipe-cli/issues"
+Changelog = "https://github.com/YOUR_USERNAME/biopipe-cli/releases"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = ["E501"]  # Line length handled by formatter
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.bandit]
+exclude_dirs = ["tests", "plugins"]
+skips = ["B101"]  # assert is fine in non-production code

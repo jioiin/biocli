@@ -1,0 +1,7 @@
+setup.py
+biopipe_plugin_ngs/__init__.py
+biopipe_plugin_ngs/main.py
+biopipe_plugin_ngs.egg-info/PKG-INFO
+biopipe_plugin_ngs.egg-info/SOURCES.txt
+biopipe_plugin_ngs.egg-info/dependency_links.txt
+biopipe_plugin_ngs.egg-info/top_level.txt

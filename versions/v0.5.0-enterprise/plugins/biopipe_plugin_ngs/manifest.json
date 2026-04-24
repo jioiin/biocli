@@ -1,0 +1,14 @@
+{
+  "name": "biopipe_plugin_ngs",
+  "version": "1.0.0",
+  "author": "BioPipe Team",
+  "description": "Next-Generation Sequencing pipelines and templates (QC, RNA-seq, WGS).",
+  "entry_point": "biopipe_plugin_ngs.main",
+  "tools": [
+    "NGSWorkflowGeneratorTool"
+  ],
+  "hooks": [],
+  "permissions": [
+    "read_workspace"
+  ]
+}

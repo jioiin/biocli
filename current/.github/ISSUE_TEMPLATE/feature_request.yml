@@ -1,0 +1,35 @@
+name: Feature Request
+description: Suggest a new feature for BioPipe-CLI
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Use Case
+      description: What workflow are you trying to accomplish?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How would you like this to work?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Pipeline Generation
+        - Safety / Security
+        - Plugin System
+        - RAG / Documentation
+        - CLI / UX
+        - LLM Integration
+        - Other
+    validations:
+      required: true

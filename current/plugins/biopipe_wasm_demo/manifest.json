@@ -1,0 +1,22 @@
+{
+  "name": "biopipe_wasm_demo",
+  "version": "1.0.0",
+  "author": "BioPipe Team",
+  "description": "Demo WASM-sandboxed plugin proving memory isolation and CPU limits.",
+  "wasm_file": "plugin.wat",
+  "permissions": ["read_workspace"],
+  "wasm_tool_schemas": [
+    {
+      "name": "wasm_pipeline_generator",
+      "description": "Generates a safe pipeline script inside a WASM sandbox with zero OS access.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "assay": {"type": "string", "description": "e.g., rna-seq, wgs, qc"},
+          "genome": {"type": "string", "description": "e.g., hg38, mm39"}
+        },
+        "required": ["assay"]
+      }
+    }
+  ]
+}

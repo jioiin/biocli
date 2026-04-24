@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "biopipe-cli"
+version = "0.1.0"
+description = "Local AI agent for bioinformatics pipeline generation"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+keywords = ["bioinformatics", "ngs", "cli", "llm", "pipeline"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = ["typer>=0.9.0", "rich>=13.0.0", "openai>=1.0.0", "prompt-toolkit>=3.0.0"]
+
+[project.optional-dependencies]
+rag = ["chromadb>=0.4.0"]
+dev = ["pytest>=8.0", "ruff>=0.4.0", "mypy>=1.10", "bandit>=1.7.5"]
+
+[project.scripts]
+biopipe = "biopipe.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
