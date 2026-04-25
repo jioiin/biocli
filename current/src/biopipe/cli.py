@@ -146,10 +146,29 @@ def _run_oneshot(prompt: str) -> None:
 # ── Subcommands ──────────────────────────────────────────────────────────────
 
 @app.command()
-def setup() -> None:
+def setup(
+    offline: bool = typer.Option(
+        False,
+        "--offline",
+        help="Enable offline setup (no downloads). Requires --model-path.",
+    ),
+    model_path: str | None = typer.Option(
+        None,
+        "--model-path",
+        help="Path to a pre-downloaded local .gguf model file.",
+    ),
+) -> None:
     """Download and configure a local LLM model for BioPipe-CLI."""
     from biopipe.setup_wizard import run_setup
-    run_setup()
+    if offline:
+        print_info("Running setup in offline mode.")
+        if not model_path:
+            print_error("Offline mode requires --model-path.")
+            raise typer.Exit(1)
+    elif model_path:
+        print_info("--model-path was provided without --offline and will be ignored.")
+
+    run_setup(offline=offline, model_path=model_path)
 
 
 @app.command()

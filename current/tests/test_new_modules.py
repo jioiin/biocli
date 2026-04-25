@@ -1,6 +1,9 @@
 """Tests for PipelineState, PluginSDK, Deliberation, Execution."""
 
+import json
+
 import pytest
+import typer
 
 from biopipe.core.pipeline_state import PipelineState, PipelineStep
 from biopipe.core.plugin_sdk import PluginLoader, PluginManifest, _FORBIDDEN_CAPABILITIES
@@ -11,6 +14,8 @@ from biopipe.core.logger import StructuredLogger
 from biopipe.core.config import DEFAULT_ALLOWLIST
 from biopipe.core.errors import PermissionDeniedError, SafetyBlockedError
 from biopipe.core.types import PermissionLevel
+from biopipe import setup_wizard
+from biopipe.cli import setup as setup_command
 
 
 # === PipelineState Tests ===
@@ -254,3 +259,36 @@ class TestExecution:
         )
         with pytest.raises(SafetyBlockedError):
             engine.execute("rm -rf /", plan=plan, user_confirmed=True)
+
+
+class TestSetupWizardOffline:
+    def test_download_model_forbidden_in_offline_mode(self) -> None:
+        with pytest.raises(RuntimeError, match="Offline mode"):
+            setup_wizard.download_model(setup_wizard.VERIFIED_MODELS[0], offline=True)
+
+    def test_run_setup_offline_requires_model_path(self) -> None:
+        with pytest.raises(SystemExit) as exc:
+            setup_wizard.run_setup(offline=True, model_path=None)
+        assert exc.value.code == 1
+
+    def test_run_setup_offline_uses_local_model_only(self, tmp_path, monkeypatch) -> None:
+        local_model = tmp_path / "local-model.gguf"
+        local_model.write_text("dummy")
+        config_file = tmp_path / "config.json"
+        monkeypatch.setattr(setup_wizard, "CONFIG_FILE", config_file)
+
+        setup_wizard.run_setup(offline=True, model_path=str(local_model))
+
+        saved = json.loads(config_file.read_text())
+        assert saved["model_path"] == str(local_model.resolve())
+        assert saved["backend"] == "llamacpp_embedded"
+
+    def test_run_setup_honors_offline_env_flag(self, monkeypatch) -> None:
+        monkeypatch.setenv("BIOPIPE_OFFLINE", "1")
+        with pytest.raises(SystemExit) as exc:
+            setup_wizard.run_setup()
+        assert exc.value.code == 1
+
+    def test_cli_setup_offline_requires_model_path(self) -> None:
+        with pytest.raises(typer.Exit):
+            setup_command(offline=True, model_path=None)
