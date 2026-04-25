@@ -75,6 +75,21 @@ class TestShellTool:
         result = shell.run("totally_fake_command_xyz")
         assert not result.allowed
 
+    def test_samtools_view_c_allowed(self) -> None:
+        shell = ShellTool()
+        result = shell.run("samtools view -c sample.bam")
+        assert result.allowed
+
+    def test_samtools_view_without_c_blocked(self) -> None:
+        shell = ShellTool()
+        result = shell.run("samtools view sample.bam")
+        assert not result.allowed
+
+    def test_samtools_unsupported_subcommand_blocked(self) -> None:
+        shell = ShellTool()
+        result = shell.run("samtools sort sample.bam")
+        assert not result.allowed
+
 
 class TestSystemProfiler:
     def test_profile_runs(self) -> None:
