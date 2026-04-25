@@ -6,10 +6,13 @@ Priority: CLI args > env vars > project biopipe.toml > global config > defaults.
 from __future__ import annotations
 
 import os
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .types import PermissionLevel
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_ALLOWLIST: list[str] = [
     "fastqc", "multiqc", "qualimap", "preseq", "rseqc",
@@ -56,7 +59,27 @@ class Config:
         ollama_url = os.getenv("BIOPIPE_OLLAMA_URL", "http://localhost:11434")
         model = os.getenv("BIOPIPE_MODEL", "llama3:8b-instruct-q4_K_M")
         env_level = os.getenv("BIOPIPE_PERMISSION_LEVEL")
-        level = PermissionLevel[env_level.upper()] if env_level else PermissionLevel.GENERATE
+        level = PermissionLevel.GENERATE
+        if env_level:
+            aliases = {
+                "readonly": "READ_ONLY",
+                "read_only": "READ_ONLY",
+                "read-only": "READ_ONLY",
+                "generate": "GENERATE",
+                "write_workspace": "WRITE_WORKSPACE",
+                "write-workspace": "WRITE_WORKSPACE",
+                "exec": "EXECUTE",
+                "execute": "EXECUTE",
+            }
+            normalized_level = aliases.get(env_level.strip().lower(), env_level.strip().upper())
+            try:
+                level = PermissionLevel[normalized_level]
+            except KeyError:
+                logger.warning(
+                    "Invalid BIOPIPE_PERMISSION_LEVEL=%r; fallback to %s",
+                    env_level,
+                    PermissionLevel.GENERATE.name,
+                )
         env_output = os.getenv("BIOPIPE_OUTPUT_DIR")
         output_dir = Path(env_output) if env_output else Path("./biopipe_output")
 
