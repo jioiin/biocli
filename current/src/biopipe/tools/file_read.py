@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from biopipe.core.types import Tool, ToolParameter
+from biopipe.core.types import Tool
 from biopipe.core.privacy import PrivacyScrubber
 
 
@@ -38,6 +38,14 @@ BINARY_FORMATS = {"bam", "cram", "bcf", "fastq_gz", "vcf_gz"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 MAX_LINES_PREVIEW = 200
 HEADER_LINES = 50
+ACCESS_DENIED_ERROR = "Access denied outside workspace"
+
+_SYSTEM_BLOCKED_PREFIXES = (
+    Path("/etc"),
+    Path("/proc"),
+    Path("/sys"),
+    Path("/dev"),
+)
 
 
 def detect_format(path: Path) -> str:
@@ -201,6 +209,38 @@ def _extract_metadata(lines: list[str], fmt: str) -> dict[str, Any]:
     return meta
 
 
+def _is_relative_to(path: Path, allowed_root: Path) -> bool:
+    """Compatibility helper for Path.is_relative_to (Python 3.11+)."""
+    if hasattr(path, "is_relative_to"):
+        return path.is_relative_to(allowed_root)
+    return allowed_root in path.parents or path == allowed_root
+
+
+def _allowed_roots() -> tuple[Path, ...]:
+    """Resolve allowed roots for file reads."""
+    cwd = Path.cwd().resolve()
+    env_output = os.getenv("BIOPIPE_OUTPUT_DIR")
+    output_root = Path(env_output).expanduser().resolve() if env_output else (cwd / "biopipe_output").resolve()
+    return (cwd, output_root)
+
+
+def _is_blocked_system_path(file_path: Path) -> bool:
+    """Block sensitive absolute system and SSH config paths."""
+    if any(file_path == blocked or _is_relative_to(file_path, blocked) for blocked in _SYSTEM_BLOCKED_PREFIXES):
+        return True
+
+    home_ssh = (Path.home() / ".ssh").resolve()
+    return file_path == home_ssh or _is_relative_to(file_path, home_ssh)
+
+
+def _is_allowed_workspace_path(file_path: Path) -> bool:
+    """Check whether file path is readable under workspace roots."""
+    if _is_blocked_system_path(file_path):
+        return False
+
+    return any(_is_relative_to(file_path, allowed_root) for allowed_root in _allowed_roots())
+
+
 # ── Tool Interface ───────────────────────────────────────────────────────────
 
 class FileReadTool(Tool):
@@ -231,6 +271,9 @@ class FileReadTool(Tool):
     async def execute(self, **params: Any) -> str:
         file_path = Path(params["path"]).expanduser().resolve()
         max_lines = params.get("max_lines", MAX_LINES_PREVIEW)
+
+        if not _is_allowed_workspace_path(file_path):
+            return f"ERROR: {ACCESS_DENIED_ERROR}"
 
         result = read_bio_file(file_path, max_lines=max_lines)
 
