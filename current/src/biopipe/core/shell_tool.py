@@ -55,9 +55,25 @@ _SUBCOMMAND_WHITELIST: dict[str, frozenset[str]] = {
 
 # Flags that are NEVER allowed regardless of command
 _BLOCKED_FLAGS: frozenset[str] = frozenset({
-    "-rf", "--force", "--delete", "--remove",
+    "-rf", "--force", "--delete", "--remove", "-delete", "-ok", "-okdir",
     "--exec", "-exec",
     "--output", "-o",  # no writing
+})
+
+# find-specific hardening: allow only read-only search primitives
+_FIND_BLOCKED_ACTION_PRIMARIES: frozenset[str] = frozenset({
+    "-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf",
+})
+_FIND_ALLOWED_OPERATORS: frozenset[str] = frozenset({"(", ")", "!", "-a", "-o", ","})
+_FIND_ALLOWED_OPTIONS_NOARG: frozenset[str] = frozenset({"-L", "-H", "-P", "-xdev", "-mount", "-noleaf"})
+_FIND_ALLOWED_OPTIONS_WITH_ARG: frozenset[str] = frozenset({"-maxdepth", "-mindepth"})
+_FIND_ALLOWED_PRIMARIES_NOARG: frozenset[str] = frozenset({
+    "-empty", "-readable", "-writable", "-executable", "-true", "-false", "-print", "-print0", "-ls",
+    "-prune", "-quit",
+})
+_FIND_ALLOWED_PRIMARIES_WITH_ARG: frozenset[str] = frozenset({
+    "-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-type", "-size", "-mtime", "-mmin",
+    "-ctime", "-cmin", "-atime", "-amin", "-newer", "-user", "-group", "-perm", "-links", "-inum",
 })
 
 
@@ -87,6 +103,12 @@ class ShellTool:
                 return ShellResult(
                     command, "", f"Flag '{flag}' is blocked", -1, False
                 )
+
+        # Gate 2b: find-specific action-primary + allowlist validation
+        if base_cmd == "find":
+            find_validation = self._validate_find_expression(parts)
+            if find_validation is not None:
+                return ShellResult(command, "", find_validation, -1, False)
 
         # Gate 3: subcommand check for multi-command tools
         if base_cmd in _SUBCOMMAND_WHITELIST and len(parts) > 1:
@@ -120,3 +142,33 @@ class ShellTool:
             return ShellResult(command, "", f"'{base_cmd}' not found on system", 127, True)
         except subprocess.TimeoutExpired:
             return ShellResult(command, "", f"Timed out after {self._timeout}s", -1, True)
+
+    def _validate_find_expression(self, parts: list[str]) -> str | None:
+        """Validate `find` expression as read-only and allowlisted."""
+        expect_value_for: str | None = None
+
+        for token in parts[1:]:
+            if token in _FIND_BLOCKED_ACTION_PRIMARIES:
+                return f"find action primary '{token}' is blocked"
+
+            if expect_value_for is not None:
+                expect_value_for = None
+                continue
+
+            if token in _FIND_ALLOWED_OPERATORS or token in _FIND_ALLOWED_OPTIONS_NOARG:
+                continue
+
+            if token in _FIND_ALLOWED_OPTIONS_WITH_ARG or token in _FIND_ALLOWED_PRIMARIES_WITH_ARG:
+                expect_value_for = token
+                continue
+
+            if token in _FIND_ALLOWED_PRIMARIES_NOARG:
+                continue
+
+            if token.startswith("-"):
+                return f"find token '{token}' is not in allowlist"
+
+        if expect_value_for is not None:
+            return f"find token '{expect_value_for}' requires a value"
+
+        return None
