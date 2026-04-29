@@ -15,6 +15,7 @@ from .types import SafetyReport, SafetyViolation
 
 _BLOCKLIST: dict[str, str] = {
     r"rm\s+-(r|f|rf|fr)\b": "Recursive/force deletion",
+    r"rm\b(?=[^\n]*\s--recursive\b)(?=[^\n]*\s--force\b)[^\n]*": "Recursive/force deletion",
     r"\bsudo\b": "Privilege escalation",
     r"\bchmod\s+777\b": "World-writable permissions",
     r"\bdd\s+if=": "Raw disk write",
