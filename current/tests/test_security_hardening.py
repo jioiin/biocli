@@ -82,6 +82,20 @@ class TestCloudModelBlocking:
             Config.load()
         os.environ.pop("BIOPIPE_OLLAMA_URL", None)
 
+    def test_substring_bypass_host_blocked(self) -> None:
+        import os
+        os.environ["BIOPIPE_OLLAMA_URL"] = "http://localhost.evil.example:11434"
+        with pytest.raises(ValueError, match="localhost"):
+            Config.load()
+        os.environ.pop("BIOPIPE_OLLAMA_URL", None)
+
+    def test_substring_bypass_path_blocked(self) -> None:
+        import os
+        os.environ["BIOPIPE_OLLAMA_URL"] = "http://evil.example/localhost"
+        with pytest.raises(ValueError, match="localhost"):
+            Config.load()
+        os.environ.pop("BIOPIPE_OLLAMA_URL", None)
+
 
 # === Config Immutability ===
 
