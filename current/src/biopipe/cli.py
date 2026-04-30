@@ -425,35 +425,15 @@ def plugins_cmd(
             print_error(str(exc))
             raise typer.Exit(1)
 
-    elif action == "install" and name:
-        import subprocess
-        plugin_url = name
-        plugin_name = plugin_url.rstrip("/").split("/")[-1]
-        if plugin_name.endswith(".git"):
-            plugin_name = plugin_name[:-4]
-
-        target_dir = Path(plugin_dir) / plugin_name
-        if target_dir.exists():
-            print_error(f"Plugin directory already exists: {target_dir}")
-            raise typer.Exit(1)
-
-        print_info(f"Cloning {plugin_url}...")
-        Path(plugin_dir).mkdir(parents=True, exist_ok=True)
-        try:
-            subprocess.run(
-                ["git", "clone", plugin_url, str(target_dir)],
-                capture_output=True, text=True, check=True
-            )
-            print_success(f"Installed plugin '{plugin_name}'.")
-        except subprocess.CalledProcessError as exc:
-            print_error(f"Failed: {exc.stderr}")
-            raise typer.Exit(1)
-        except FileNotFoundError:
-            print_error("Git is not installed.")
-            raise typer.Exit(1)
+    elif action == "install":
+        print_error(
+            "Remote plugin installation is disabled for security reasons. "
+            "Install only vetted local WASM plugins."
+        )
+        raise typer.Exit(1)
 
     else:
-        print_info("Usage: biopipe plugins [list|info <name>|validate <path>|install <git_url>]")
+        print_info("Usage: biopipe plugins [list|info <name>|validate <path>]")
 
 
 def main() -> None:
