@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
 from .config import Config
 from .hooks import HookRegistry
 from .logger import StructuredLogger
@@ -14,6 +16,13 @@ from .tool_registry import ToolRegistry
 from .tool_scheduler import ToolScheduler
 from .types import Hook, LLMProvider, Tool
 from typing import Any, Callable
+
+@dataclass(frozen=True)
+class RuntimeStatus:
+    model: str
+    rag_available: bool
+    registered_tools: tuple[str, ...]
+    loaded_plugins: tuple[str, ...]
 
 class AgentRuntime:
     """Main controller. Assembles components, provides entry point."""
@@ -37,6 +46,7 @@ class AgentRuntime:
             self._registry, self._permissions, timeout=config.llm_timeout
         )
         self._router = Router(self._registry)
+        self._plugin_loader = None
 
         self._loop = AgentLoop(
             llm=llm,
@@ -84,16 +94,15 @@ class AgentRuntime:
 
     def load_plugins(self) -> None:
         """Discover and load plugins from ~/.biopipe/plugins/."""
-        from pathlib import Path
         from .plugin_sdk import PluginLoader
         from .errors import BioPipeError
 
         plugin_dir = str(Path.home() / ".biopipe" / "plugins")
-        loader = PluginLoader(plugin_dir=plugin_dir)
+        self._plugin_loader = PluginLoader(plugin_dir=plugin_dir)
 
-        for manifest in loader.discover():
+        for manifest in self._plugin_loader.discover():
             try:
-                result = loader.load_plugin(manifest)
+                result = self._plugin_loader.load_plugin(manifest)
                 for tool in result["tools"]:
                     self.register_tool(tool)
                 for hook in result["hooks"]:
@@ -109,6 +118,17 @@ class AgentRuntime:
                     "name": manifest.name,
                     "error": str(exc),
                 })
+
+    def status(self) -> RuntimeStatus:
+        loaded_plugins: tuple[str, ...] = ()
+        if self._plugin_loader is not None:
+            loaded_plugins = tuple(self._plugin_loader.list_loaded())
+        return RuntimeStatus(
+            model=self._llm.model_id(),
+            rag_available=self._loop._rag is not None,
+            registered_tools=tuple(self._registry.names()),
+            loaded_plugins=loaded_plugins,
+        )
 
     async def shutdown(self) -> None:
         """Graceful shutdown."""

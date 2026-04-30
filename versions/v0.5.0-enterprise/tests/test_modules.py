@@ -88,3 +88,12 @@ class TestRuntimeIntegration:
         llm = MockLLM()
         runtime = AgentRuntime(config, llm)
         assert runtime._registry.names() == []
+
+    def test_runtime_status_exposes_structured_state(self) -> None:
+        config = Config.load()
+        llm = MockLLM()
+        runtime = AgentRuntime(config, llm)
+        status = runtime.status()
+        assert status.model == "mock-llm-v1"
+        assert status.registered_tools == ()
+        assert status.loaded_plugins == ()

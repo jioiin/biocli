@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import os
 import sys
 from pathlib import Path
@@ -274,7 +275,7 @@ def interactive(
 
     config = Config.load()
     if model:
-        config.model = model
+        config = replace(config, model=model)
 
     repl = BioPipeREPL(config)
     repl.start()
