@@ -7,6 +7,7 @@ Cannot be bypassed by prompt injection.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 
 from .ast_analyzer import PythonASTAnalyzer
@@ -107,6 +108,42 @@ class SafetyValidator:
             passed=not has_critical,
             violations=vs,
             script_hash=hashlib.sha256(code.encode()).hexdigest(),
+        )
+
+    def validate_plan(self, plan_json: str) -> SafetyReport:
+        """Validate JSON execution plan before script generation."""
+        vs: list[SafetyViolation] = []
+        try:
+            payload = json.loads(plan_json)
+        except json.JSONDecodeError as exc:
+            return SafetyReport(
+                passed=False,
+                violations=[SafetyViolation("critical", None, f"Invalid JSON plan: {exc.msg}", "json_decode")],
+                script_hash=hashlib.sha256(plan_json.encode()).hexdigest(),
+            )
+
+        if not isinstance(payload, dict) or not isinstance(payload.get("plan"), list) or not payload["plan"]:
+            vs.append(SafetyViolation("critical", None, "Plan must contain non-empty 'plan' array", "plan_schema"))
+        else:
+            required = {"step", "tool", "input", "output", "resources", "risks"}
+            for idx, item in enumerate(payload["plan"], 1):
+                if not isinstance(item, dict):
+                    vs.append(SafetyViolation("critical", idx, "Each plan step must be an object", "plan_step_type"))
+                    continue
+                missing = required - set(item.keys())
+                if missing:
+                    vs.append(SafetyViolation("critical", idx, f"Missing plan fields: {sorted(missing)}", "plan_schema"))
+                tool = str(item.get("tool", "")).strip()
+                if not tool:
+                    vs.append(SafetyViolation("critical", idx, "Plan step has empty tool", "plan_tool_empty"))
+                if self._allowlist and tool.lower() not in self._allowlist:
+                    vs.append(SafetyViolation("warning", idx, f"Unknown tool in plan: {tool}", f"not_in_allowlist:{tool}"))
+
+        has_critical = any(v.severity == "critical" for v in vs)
+        return SafetyReport(
+            passed=not has_critical,
+            violations=vs,
+            script_hash=hashlib.sha256(plan_json.encode()).hexdigest(),
         )
 
     # --- Layer helpers ---

@@ -44,3 +44,22 @@ that are not documented here.
 ---
 Now answer the user's request using the documentation above.
 """
+
+PLAN_JSON_TEMPLATE = """Return ONLY valid JSON (no markdown) using this schema:
+{
+  "plan": [
+    {
+      "step": "Short step name",
+      "tool": "Primary bioinformatics tool for this step",
+      "input": ["input file(s) or resources"],
+      "output": ["output file(s) or artifacts"],
+      "resources": {
+        "cpu": "e.g. 8",
+        "memory": "e.g. 32G",
+        "time": "e.g. 04:00:00"
+      },
+      "risks": ["key technical or data risks for this step"]
+    }
+  ]
+}
+"""

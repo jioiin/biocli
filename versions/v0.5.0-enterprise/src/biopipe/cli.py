@@ -73,6 +73,8 @@ def generate(
     prompt: str = typer.Argument(..., help="Natural language pipeline request"),
     model: str = typer.Option(None, "--model", "-m", help="Model name"),
     output_dir: str = typer.Option(None, "--output-dir", "-o", help="Output directory"),
+    plan_only: bool = typer.Option(False, "--plan-only", help="Generate and validate plan only (no script generation)"),
+    require_plan_approval: bool = typer.Option(False, "--require-plan-approval", help="Stop after validated plan for manual approval"),
 ) -> None:
     """Generate a bioinformatics pipeline script from natural language."""
     # Config is frozen — set env vars before loading
@@ -92,7 +94,14 @@ def generate(
         print_info("Agent reasoning and streaming response...")
         
         try:
-            result = asyncio.run(runtime.run(prompt, stream_callback=printer.append))
+            result = asyncio.run(
+                runtime.run(
+                    prompt,
+                    stream_callback=printer.append,
+                    plan_only=plan_only,
+                    require_plan_approval=require_plan_approval,
+                )
+            )
         except Exception as exc:
             printer.finalize()
             raise exc
