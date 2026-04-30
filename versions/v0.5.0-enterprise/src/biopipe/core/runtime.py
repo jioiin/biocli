@@ -54,11 +54,22 @@ class AgentRuntime:
 
 
 
-    async def run(self, user_input: str, stream_callback: Callable[[str], None] | None = None) -> str:
+    async def run(
+        self,
+        user_input: str,
+        stream_callback: Callable[[str], None] | None = None,
+        plan_only: bool = False,
+        require_plan_approval: bool = False,
+    ) -> str:
         """Process user input through the full agent loop."""
         self._logger.log("session_start", {"model": self._llm.model_id()})
         try:
-            result = await self._loop.run(user_input, stream_callback=stream_callback)
+            result = await self._loop.run(
+                user_input,
+                stream_callback=stream_callback,
+                plan_only=plan_only,
+                require_plan_approval=require_plan_approval,
+            )
             self._logger.log("session_end", {"status": "success"})
             return result
         except Exception as exc:
