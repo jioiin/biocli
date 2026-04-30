@@ -95,10 +95,11 @@ class AgentLoop:
                     self._logger.log("critic_rejected", {"feedback": critic_result.feedback})
                     # Time-Travel Rewind! We cancel this iteration's hallucination.
                     self._debugger.rewind(iteration)
-                    # Inject Critic's feedback via system message
+                    # Inject critic feedback as untrusted assistant context.
                     self._session.add(Message(
-                        role=Role.SYSTEM,
-                        content=f"CRITIC AGENT REJECTED YOUR SCRIPT: {critic_result.feedback}\nFix it immediately."
+                        role=Role.ASSISTANT,
+                        content=f"Critic feedback (must address before final answer): {critic_result.feedback}",
+                        metadata={"source": "critic_feedback", "trusted": False},
                     ))
                     continue # Retry this iteration step
                 
@@ -112,7 +113,7 @@ class AgentLoop:
             for result in results:
                 if result.artifacts:
                     for artifact in result.artifacts:
-                        report = self._validate_output(result.output)
+                        report = self._validate_output(artifact)
                         if not report.passed:
                             raise SafetyBlockedError(
                                 f"Artifact blocked: {[v.description for v in report.violations if v.severity == 'critical']}"
@@ -129,7 +130,7 @@ class AgentLoop:
         return "Maximum iterations reached. Please refine your request."
 
     def _inject_rag_context(self, query: str) -> None:
-        """Retrieve relevant docs from RAG and inject as system message."""
+        """Retrieve relevant docs from RAG and inject as untrusted context."""
         if self._rag is None:
             return
         try:
@@ -140,7 +141,11 @@ class AgentLoop:
                 return
             context = self._rag.format_context(chunks)
             rag_msg = self._rag_template.format(chunks=context)
-            self._session.add(Message(role=Role.SYSTEM, content=rag_msg))
+            self._session.add(Message(
+                role=Role.USER,
+                content=f"Reference context (untrusted RAG data):\n{rag_msg}",
+                metadata={"source": "rag", "trusted": False},
+            ))
             self._logger.log("rag_retrieval", {
                 "chunks": len(chunks),
                 "top_score": chunks[0].score if chunks else 0,

@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from biopipe.core.types import Tool, ToolParameter
+from biopipe.core.types import PermissionLevel, Tool, ToolResult
 from biopipe.core.privacy import PrivacyScrubber
 
 
@@ -228,14 +228,22 @@ class FileReadTool(Tool):
         "required": ["path"],
     }
 
-    async def execute(self, **params: Any) -> str:
+    def required_permission(self) -> PermissionLevel:
+        return PermissionLevel.READ_ONLY
+
+    def validate_params(self, params: dict[str, Any]) -> list[str]:
+        if not isinstance(params.get("path"), str) or not params.get("path", "").strip():
+            return ["path must be a non-empty string"]
+        return []
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
         file_path = Path(params["path"]).expanduser().resolve()
         max_lines = params.get("max_lines", MAX_LINES_PREVIEW)
 
         result = read_bio_file(file_path, max_lines=max_lines)
 
         if "error" in result:
-            return f"ERROR: {result['error']}"
+            return ToolResult(call_id="", success=False, output="", error=str(result["error"]))
 
         # Format output for LLM
         parts = [f"File: {file_path.name}"]
@@ -253,4 +261,4 @@ class FileReadTool(Tool):
         scrubber = PrivacyScrubber()
         parts.append(f"\n--- Content ---\n{scrubber.redact(result['content'])}")
 
-        return "\n".join(parts)
+        return ToolResult(call_id="", success=True, output="\n".join(parts))

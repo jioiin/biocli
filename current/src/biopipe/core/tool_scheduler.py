@@ -57,4 +57,5 @@ class ToolScheduler:
                 f"Tool '{call.tool_name}' failed: {exc}"
             ) from exc
 
+        result.call_id = call.call_id
         return result
