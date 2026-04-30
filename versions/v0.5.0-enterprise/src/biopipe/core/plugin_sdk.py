@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -112,6 +113,12 @@ class PluginLoader:
                 f"Plugin entry_point must start with 'biopipe_' prefix. "
                 f"Got: '{manifest.entry_point}'. "
                 f"This prevents importing arbitrary Python modules."
+            )
+
+        if os.getenv("BIOPIPE_ALLOW_LEGACY_PYTHON_PLUGINS", "").lower() not in {"1", "true", "yes"}:
+            raise ToolValidationError(
+                "Legacy Python plugins are disabled by default because import-time code is not sandboxed. "
+                "Use WASM plugins, or explicitly set BIOPIPE_ALLOW_LEGACY_PYTHON_PLUGINS=true only for trusted local plugins."
             )
 
         try:

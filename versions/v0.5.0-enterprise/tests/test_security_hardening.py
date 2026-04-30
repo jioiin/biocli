@@ -157,6 +157,6 @@ class TestPluginEntryPointSecurity:
             name="good", version="1.0", author="dev",
             description="good", entry_point="biopipe_plugin_test",
         )
-        # Will fail on ImportError (package doesn't exist), not on validation
-        with pytest.raises(ToolValidationError, match="Cannot import"):
+        # Legacy Python plugins are disabled by default.
+        with pytest.raises(ToolValidationError, match="disabled by default"):
             loader.load_plugin(manifest)

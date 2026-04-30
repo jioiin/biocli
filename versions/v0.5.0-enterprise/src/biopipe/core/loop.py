@@ -109,13 +109,11 @@ class AgentLoop:
             results = await self._scheduler.schedule(response.tool_calls)
 
             for result in results:
-                if result.artifacts:
-                    for artifact in result.artifacts:
-                        report = self._validate_output(result.output)
-                        if not report.passed:
-                            raise SafetyBlockedError(
-                                f"Artifact blocked: {[v.description for v in report.violations if v.severity == 'critical']}"
-                            )
+                report = self._validate_output(result.output)
+                if not report.passed:
+                    raise SafetyBlockedError(
+                        f"Tool output blocked: {[v.description for v in report.violations if v.severity == 'critical']}"
+                    )
 
                 self._session.add(Message(
                     role=Role.TOOL,

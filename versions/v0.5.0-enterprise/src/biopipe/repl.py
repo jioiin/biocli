@@ -8,14 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from pathlib import Path
 
 from biopipe.core.config import Config
 from biopipe.core.deliberation import DeliberationEngine
 from biopipe.core.errors import BioPipeError, SafetyBlockedError
 from biopipe.core.execution import ExecutionEngine
 from biopipe.core.pipeline_state import PipelineState
-from biopipe.core.plugin_sdk import PluginLoader
 from biopipe.core.runtime import AgentRuntime
 
 
@@ -61,9 +59,6 @@ class BioPipeREPL:
         self._runtime: AgentRuntime | None = None
         self._execution: ExecutionEngine | None = None
         self._deliberation: DeliberationEngine | None = None
-        self._plugin_loader = PluginLoader(
-            plugin_dir=str(Path.home() / ".biopipe" / "plugins")
-        )
 
     def start(self) -> None:
         """Start the interactive REPL."""
@@ -123,7 +118,7 @@ class BioPipeREPL:
         except Exception:
             rag_status = "unavailable (install: pip install chromadb)"
 
-        plugins = self._plugin_loader.list_loaded()
+        plugins = self._runtime.status().loaded_plugins if self._runtime else ()
         plugin_str = ", ".join(plugins) if plugins else "none"
 
         print(_BANNER.format(
@@ -277,7 +272,7 @@ class BioPipeREPL:
 
     def _show_plugins(self) -> None:
         """Show loaded plugins."""
-        loaded = self._plugin_loader.list_loaded()
+        loaded = self._runtime.status().loaded_plugins if self._runtime else ()
         if not loaded:
             print("No plugins loaded.")
             print(f"Plugin directory: ~/.biopipe/plugins/")

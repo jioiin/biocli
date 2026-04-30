@@ -61,15 +61,18 @@ class CriticAgent:
             
             # Simple heuristic safety net
             if "approved" not in data or "feedback" not in data:
-                return CriticResult(True, "Auto-approved due to malformed critic JSON")
+                return CriticResult(
+                    False,
+                    "Critic response malformed: missing required keys 'approved' and/or 'feedback'.",
+                )
             
             return CriticResult(
                 approved=bool(data["approved"]),
                 feedback=str(data["feedback"])
             )
         except json.JSONDecodeError:
-            # If the critic fails to emit valid JSON, default to True so we don't block
-            return CriticResult(True, "Auto-approved (Critic failed JSON validation)")
+            # Fail closed on malformed critic output.
+            return CriticResult(False, "Critic failed JSON validation and could not approve output safely.")
 
 
 class CriticHook(Hook):
