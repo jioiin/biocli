@@ -1,51 +1,74 @@
-"""Beautiful terminal UI components for BioPipe-CLI."""
+"""BioPipe-CLI Ultimate UI: Powered by PulseEngine & LayoutManager."""
 
-import sys
 from rich.console import Console
-from rich.panel import Panel
-from rich.syntax import Syntax
-from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.live import Live
+from rich.panel import Panel
 from rich.markdown import Markdown
-from typing import Any, Optional
+from .theme import get_theme
+from .pulse_engine import PulseEngine, PulseState
+from .dashboard_renderer import DashboardRenderer, SystemVitals
+from .layout_manager import LayoutManager
 
-# Global console instance
 console = Console()
-err_console = Console(stderr=True)
+theme = get_theme()
 
+class BioPipeUI:
+    def __init__(self, model_name: str = "Local Model"):
+        self.engine = PulseEngine()
+        self.dashboard = DashboardRenderer(console)
+        self.layout = LayoutManager(console)
+        self.vitals = SystemVitals(model_name=model_name, ram_total_mb=8192.0) # Placeholder
+        self.live = None
+
+    def start(self):
+        self.layout.update_header("🧬 BioPipe-CLI v2.5 | 100% Local")
+        self.layout.update_footer("Ctrl+C: Exit | Ctrl+H: Help")
+        self.layout.update_sidebar(self.dashboard.render_vitals(self.vitals))
+        self.layout.update_main(Panel("Ready. Waiting for input...", title="Activity", border_style="green"))
+
+        self.live = Live(self.layout.layout, console=console, refresh_per_second=4)
+        self.live.start()
+
+    def stop(self):
+        if self.live:
+            self.live.stop()
+
+    def update_vitals(self, **kwargs):
+        for k, v in kwargs.items():
+            if hasattr(self.vitals, k):
+                setattr(self.vitals, k, v)
+        self.layout.update_sidebar(self.dashboard.render_vitals(self.vitals))
+
+    def update_main(self, content: str, title: str = "Activity"):
+        self.layout.update_main(Panel(Markdown(content), title=title, border_style="blue"))
+
+# Global UI instance (optional, for simple CLI usage)
+_ui_instance = None
+
+def get_ui(model_name: str = "Local") -> BioPipeUI:
+    global _ui_instance
+    if _ui_instance is None:
+        _ui_instance = BioPipeUI(model_name)
+    return _ui_instance
+
+# Backward compatibility helpers
 def print_header() -> None:
-    """Print the BioPipe CLI header."""
-    console.print(Panel.fit("[bold cyan]🧬 BioPipe-CLI[/bold cyan] [grey50]v2.0[/grey50]", border_style="cyan"))
+    get_ui().layout.update_header("🧬 BioPipe-CLI v2.5 | 100% Local")
 
 def print_error(msg: str) -> None:
-    """Print a rich error message."""
-    err_console.print(f"[bold red]ERROR:[/bold red] {msg}")
-
-def print_warning(msg: str) -> None:
-    """Print a rich warning message."""
-    console.print(f"[bold yellow]WARNING:[/bold yellow] {msg}")
+    console.print(f"[bold red]ERROR:[/bold red] {msg}")
 
 def print_success(msg: str) -> None:
-    """Print a rich success message."""
     console.print(f"[bold green]SUCCESS:[/bold green] {msg}")
 
 def print_info(msg: str) -> None:
-    """Print an informational message."""
     console.print(f"[bold blue]INFO:[/bold blue] {msg}")
 
-def print_code(code: str, language: str = "bash") -> None:
-    """Print syntax highlighted code."""
-    syntax = Syntax(code, language, theme="monokai", line_numbers=True)
-    console.print(Panel(syntax, title=f"Generated {language.upper()}", border_style="green"))
-
 def render_markdown(text: str) -> None:
-    """Render markdown text."""
-    md = Markdown(text)
-    console.print(md)
+    console.print(Markdown(text))
 
-def get_spinner(text: str = "Processing...") -> Progress:
-    """Return a spinner progress context manager."""
+def get_spinner(text: str = "Processing..."):
+    from rich.progress import Progress, SpinnerColumn, TextColumn
     return Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -53,23 +76,11 @@ def get_spinner(text: str = "Processing...") -> Progress:
     )
 
 class StreamingMarkdownPrinter:
-    """Helps print streaming markdown token by token smoothly."""
     def __init__(self):
         self.buffer = ""
-        self.live = Live(Markdown(""), console=console, refresh_per_second=15, transient=False)
-        self.started = False
-    
     def append(self, token: str):
-        if not self.started:
-            self.live.start()
-            self.started = True
-            
         self.buffer += token
-        self.live.update(Markdown(self.buffer))
-
+        # Simple print for now to avoid Live conflicts in non-TUI mode
+        console.print(token, end="")
     def finalize(self):
-        if self.started:
-            self.live.stop()
-        else:
-            # If nothing streamed, just print it assuming it failed fast or something
-            pass
+        console.print("\n")

@@ -1,4 +1,5 @@
 from biopipe.core.types import Tool, PermissionLevel, ToolResult
+from typing import Any
 
 class NGSWorkflowGeneratorTool(Tool):
     """Generates standard NGS pipelines."""
@@ -15,7 +16,7 @@ class NGSWorkflowGeneratorTool(Tool):
         return PermissionLevel.GENERATE
 
     @property
-    def parameters_schema(self) -> dict:
+    def parameter_schema(self) -> dict:
         return {
             "type": "object",
             "properties": {
@@ -25,13 +26,13 @@ class NGSWorkflowGeneratorTool(Tool):
             "required": ["assay"]
         }
 
-    def execute(self, **kwargs) -> ToolResult:
-        assay = kwargs.get("assay")
-        genome = kwargs.get("genome", "hg38")
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
+        assay = params.get("assay")
+        genome = params.get("genome", "hg38")
         
         output = f"echo 'Running {assay} pipeline on {genome}'\n"
         if assay == "rna-seq":
             output += "fastqc *.fastq.gz\n"
             output += f"star --genomeDir /db/star/{genome} --readFilesIn reads.fq.gz\n"
             
-        return ToolResult(output=output)
+        return ToolResult(call_id="", success=True, output=output)

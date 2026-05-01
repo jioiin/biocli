@@ -33,8 +33,12 @@ DEFAULT_ALLOWLIST: list[str] = [
 class Config:
     """Frozen after creation. Cannot be modified at runtime."""
 
+    backend: str = "hf_local"  # Only local Hugging Face (GPT4All)
     ollama_url: str = "http://localhost:11434"
-    model: str = "llama3:8b-instruct-q4_K_M"
+    model: str = "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+    model_path: Path = field(
+        default_factory=lambda: Path.home() / ".biopipe" / "models" / "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+    )
     output_dir: Path = field(default_factory=lambda: Path("./biopipe_output"))
     max_iterations: int = 10
     permission_level: PermissionLevel = PermissionLevel.GENERATE
@@ -42,7 +46,7 @@ class Config:
     slurm_max_nodes: int = 4
     slurm_max_hours: int = 72
     log_file: Path | None = None
-    log_level: str = "INFO"
+    log_level: str = "DEBUG"
     rag_top_k: int = 5
     rag_db_path: Path = field(
         default_factory=lambda: Path.home() / ".local/share/biopipe/chromadb"
@@ -53,36 +57,45 @@ class Config:
     @classmethod
     def load(cls) -> Config:
         """Merge all config sources. Returns frozen Config."""
+        model = os.getenv("BIOPIPE_MODEL", "qwen2.5-coder-7b-instruct-q4_k_m.gguf")
         ollama_url = os.getenv("BIOPIPE_OLLAMA_URL", "http://localhost:11434")
-        model = os.getenv("BIOPIPE_MODEL", "llama3:8b-instruct-q4_K_M")
+
+        env_model_path = os.getenv("BIOPIPE_MODEL_PATH")
+        if env_model_path:
+            model_path = Path(env_model_path)
+        else:
+            model_path = Path.home() / ".biopipe" / "models" / model
+
+        backend = os.getenv("BIOPIPE_BACKEND", "hf_local")
+
+        # Preserve privacy hardening even when the default backend is local GGUF.
+        if not any(h in ollama_url for h in ("localhost", "127.0.0.1", "::1")):
+            raise ValueError(
+                f"ollama_url must be localhost. Got: {ollama_url}. "
+                "Remote URLs leak prompts to external servers."
+            )
+
+        cloud_patterns = ("-cloud", "cloud:", ":cloud")
+        if any(pattern in model.lower() for pattern in cloud_patterns):
+            raise ValueError(
+                f"Cloud model '{model}' is blocked. "
+                "Cloud models send prompts to external servers."
+            )
+
         env_level = os.getenv("BIOPIPE_PERMISSION_LEVEL")
         level = PermissionLevel[env_level.upper()] if env_level else PermissionLevel.GENERATE
         env_output = os.getenv("BIOPIPE_OUTPUT_DIR")
         output_dir = Path(env_output) if env_output else Path("./biopipe_output")
-
-        # Validate ollama_url: localhost only
-        if not any(h in ollama_url for h in ("localhost", "127.0.0.1", "::1")):
-            raise ValueError(
-                f"ollama_url must be localhost. Got: {ollama_url}. "
-                f"Remote URLs leak prompts to external servers."
-            )
-
-        # Block cloud models — they send prompts to Ollama's servers
-        _CLOUD_PATTERNS = ("-cloud", "cloud:", ":cloud")
-        if any(p in model.lower() for p in _CLOUD_PATTERNS):
-            raise ValueError(
-                f"Cloud model '{model}' is blocked. "
-                f"Cloud models send prompts to external servers. "
-                f"Use a local model: qwen2.5-coder:14b, llama3.3:8b, etc."
-            )
 
         # Ensure allowlist doesn't contain dangerous tools
         _NEVER_ALLOW = frozenset({"rm", "sudo", "curl", "wget", "nc", "dd", "mkfs"})
         safe_allowlist = tuple(t for t in DEFAULT_ALLOWLIST if t not in _NEVER_ALLOW)
 
         return cls(
+            backend=backend,
             ollama_url=ollama_url,
             model=model,
+            model_path=model_path,
             output_dir=output_dir,
             permission_level=level,
             safety_allowlist=safe_allowlist,

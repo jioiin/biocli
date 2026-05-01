@@ -92,20 +92,29 @@ class AgentLoop:
                 critic_result = await self._critic.review_script(response.content, user_input)
                 if not critic_result.approved:
                     self._logger.log("critic_rejected", {"feedback": critic_result.feedback})
-                    # Time-Travel Rewind! We cancel this iteration's hallucination.
                     self._debugger.rewind(iteration)
-                    # Inject Critic's feedback via system message
                     self._session.add(Message(
                         role=Role.SYSTEM,
                         content=f"CRITIC AGENT REJECTED YOUR SCRIPT: {critic_result.feedback}\nFix it immediately."
                     ))
-                    continue # Retry this iteration step
-                
-                # If approved, proceed normally
+                    continue
+
                 self._logger.log("critic_approved", {})
+
+                # ── VERIFY STAGE ─────────────────────
+                verification_msg = await self._verify_script(response.content)
+                if verification_msg:
+                    self._logger.log("verification_feedback", {"msg": verification_msg})
+                    self._session.add(Message(
+                        role=Role.SYSTEM,
+                        content=f"SYNTAX/LINT ERRORS FOUND:\n{verification_msg}\nPlease fix these issues in the next iteration."
+                    ))
+                    continue
+
                 self._session.add(response)
                 return response.content
 
+            # Tool execution logic
             results = await self._scheduler.schedule(response.tool_calls)
 
             for result in results:
@@ -126,6 +135,38 @@ class AgentLoop:
             self._session.compact()
 
         return "Maximum iterations reached. Please refine your request."
+
+    async def _verify_script(self, content: str) -> str | None:
+        """Run local linters on the generated content."""
+        import tempfile
+        import subprocess
+        import os
+        from pathlib import Path
+
+        language = "python" if "import " in content and "def " in content else "bash"
+        suffix = ".py" if language == "python" else ".sh"
+
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, mode="w", encoding="utf-8") as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        try:
+            if language == "python":
+                res = subprocess.run(["ruff", "check", tmp_path], capture_output=True, text=True)
+                if res.returncode != 0:
+                    return res.stdout
+            else:
+                res = subprocess.run(["shellcheck", tmp_path], capture_output=True, text=True)
+                if res.returncode != 0:
+                    return res.stdout
+        except FileNotFoundError:
+            pass
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+        return None
 
     def _inject_rag_context(self, query: str) -> None:
         """Retrieve relevant docs from RAG and inject as system message."""

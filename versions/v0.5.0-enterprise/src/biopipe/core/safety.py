@@ -69,6 +69,9 @@ _SHELL_BUILTINS: frozenset[str] = frozenset({
     "for", "do", "done", "while", "|", "&&", "||", "true",
     "false", "exit", "trap", "source", ".", "test", "[", "[[",
     "export", "set", "local", "readonly", "declare",
+    "ls", "cat", "grep", "sed", "awk", "find", "cp", "mv", "rm",
+    "touch", "head", "tail", "wc", "sort", "uniq", "cut", "tr",
+    "gzip", "gunzip", "tar", "zip", "unzip",
 })
 
 

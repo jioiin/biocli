@@ -24,34 +24,84 @@ class ModelInfo:
     description: str
 
 
-# Curated, verified models — all 100% local, zero telemetry
+# Curated, verified models (2025-2026) — all 100% local, zero telemetry
 VERIFIED_MODELS: list[ModelInfo] = [
+    # --- 8GB RAM Tier ---
     ModelInfo(
-        name="tier1-qwen2.5-7b",
-        display_name="Tier 1: Qwen 2.5 Coder 7B",
-        size_gb=4.4,
+        name="tier1-qwen2.5-coder-7b",
+        display_name="Qwen 2.5 Coder 7B",
+        size_gb=4.7,
         min_ram_gb=8,
         repo_id="Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
         filename="qwen2.5-coder-7b-instruct-q4_k_m.gguf",
-        description="Базовый уровень (Ноутбук). Идеально для простых bash скриптов.",
+        description="[Code Expert] Лучшая для 8ГБ ОЗУ. Специалист по Bash/Python для NGS.",
     ),
     ModelInfo(
-        name="tier2-qwen2.5-14b",
-        display_name="Tier 2: Qwen 2.5 Coder 14B",
+        name="tier1-llama3.1-8b",
+        display_name="Llama 3.1 8B",
+        size_gb=5.1,
+        min_ram_gb=8,
+        repo_id="bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+        filename="Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+        description="[Generalist] Универсальная модель. Высокая насмотренность на научные статьи.",
+    ),
+    # --- 16GB RAM Tier ---
+    ModelInfo(
+        name="tier2-deepseek-r1-14b",
+        display_name="DeepSeek R1 14B",
         size_gb=9.0,
         min_ram_gb=16,
-        repo_id="Qwen/Qwen2.5-Coder-14B-Instruct-GGUF",
-        filename="qwen2.5-coder-14b-instruct-q4_k_m.gguf",
-        description="Продвинутый уровень (Рабочая станция). Рекомендуется.",
+        repo_id="unsloth/DeepSeek-R1-Distill-Qwen-14B-GGUF",
+        filename="DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf",
+        description="[Reasoning] Для 16ГБ+ ОЗУ. Продумывает архитектуру пайплайна перед написанием.",
+    ),
+    # --- 32GB RAM Tier ---
+    ModelInfo(
+        name="tier3-codestral-22b",
+        display_name="Mistral Codestral 22B",
+        size_gb=14.0,
+        min_ram_gb=32,
+        repo_id="bartowski/Codestral-22B-v0.1-GGUF",
+        filename="Codestral-22B-v0.1-Q4_K_M.gguf",
+        description="[Pro Code] От Mistral AI. Огромный опыт в сложных DSL2 Nextflow пайплайнах.",
     ),
     ModelInfo(
-        name="tier3-qwen2.5-32b",
-        display_name="Tier 3: Qwen 2.5 Coder 32B",
+        name="tier3-qwen2.5-coder-32b",
+        display_name="Qwen 2.5 Coder 32B",
         size_gb=19.5,
         min_ram_gb=32,
         repo_id="Qwen/Qwen2.5-Coder-32B-Instruct-GGUF",
         filename="qwen2.5-coder-32b-instruct-q4_k_m.gguf",
-        description="Ступень PhD (Кластер). Максимальный интеллектуальный потенциал.",
+        description="[Industry Standard] Для 32ГБ+ ОЗУ. Глубокое знание BioConda и nf-core.",
+    ),
+    # --- 64GB+ RAM Tier ---
+    ModelInfo(
+        name="tier4-llama3.1-70b",
+        display_name="Llama 3.1 70B",
+        size_gb=40.0,
+        min_ram_gb=64,
+        repo_id="bartowski/Meta-Llama-3.1-70B-Instruct-GGUF",
+        filename="Meta-Llama-3.1-70B-Instruct-Q4_K_M.gguf",
+        description="[Scientist] Огромные знания о биоинформатике и биологии. Очень стабильная.",
+    ),
+    ModelInfo(
+        name="tier4-deepseek-r1-70b",
+        display_name="DeepSeek R1 70B",
+        size_gb=42.0,
+        min_ram_gb=64,
+        repo_id="unsloth/DeepSeek-R1-Distill-Llama-70B-GGUF",
+        filename="DeepSeek-R1-Distill-Llama-70B-Q4_K_M.gguf",
+        description="[PhD Reasoning] Для 64ГБ+ ОЗУ. Отладка сложнейших ошибок и проектирование систем.",
+    ),
+    # --- 128GB RAM Tier ---
+    ModelInfo(
+        name="tier5-deepseek-r1-70b-high",
+        display_name="DeepSeek R1 70B (High-Precision)",
+        size_gb=55.0,
+        min_ram_gb=128,
+        repo_id="unsloth/DeepSeek-R1-Distill-Llama-70B-GGUF",
+        filename="DeepSeek-R1-Distill-Llama-70B-Q6_K.gguf",
+        description="[Ultimate] Для 128ГБ+ ОЗУ. Максимальная точность (Q6_K) для критических задач.",
     ),
 ]
 
@@ -119,7 +169,7 @@ def save_config(model_path: str) -> None:
     """Save config to ~/.biopipe/config.json."""
     import json
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    config = {"model_path": model_path, "backend": "llamacpp_embedded"}
+    config = {"model_path": model_path, "backend": "hf_local"}
     CONFIG_FILE.write_text(json.dumps(config, indent=2))
     print(f"  Config saved: {CONFIG_FILE}")
 

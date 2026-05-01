@@ -34,18 +34,19 @@ app = typer.Typer(
 
 def _get_llm(config: Config):
     """Create LLM provider based on config."""
-    from biopipe.llm.ollama import OllamaLLM
-    return OllamaLLM(
-        base_url=config.ollama_url,
-        model=config.model,
-        timeout=config.llm_timeout,
-    )
+    if config.backend == "hf_local":
+        from biopipe.llm.hf_local import HFLocalLLM
+        return HFLocalLLM(
+            model_path=str(config.model_path),
+        )
+
+    raise ValueError(f"Unsupported backend: {config.backend}. Only 'hf_local' is supported.")
 
 
 def _build_runtime(config: Config) -> AgentRuntime:
     """Build the runtime. Plugins provide tools — core has none built-in."""
     llm = _get_llm(config)
-    
+
     rag = None
     try:
         from biopipe.rag.retriever import RAGRetriever
@@ -71,10 +72,10 @@ def _build_runtime(config: Config) -> AgentRuntime:
 @app.command()
 def generate(
     prompt: str = typer.Argument(..., help="Natural language pipeline request"),
-    model: str = typer.Option(None, "--model", "-m", help="Model name"),
+    model: str = typer.Option(None, "--model", "-m", help="GGUF model filename"),
     output_dir: str = typer.Option(None, "--output-dir", "-o", help="Output directory"),
 ) -> None:
-    """Generate a bioinformatics pipeline script from natural language."""
+    """Generate a bioinformatics pipeline script using a local model."""
     # Config is frozen — set env vars before loading
     if model:
         os.environ["BIOPIPE_MODEL"] = model
@@ -87,10 +88,10 @@ def generate(
     try:
         from biopipe.core.ui import StreamingMarkdownPrinter
         printer = StreamingMarkdownPrinter()
-        
+
         print_header()
-        print_info("Agent reasoning and streaming response...")
-        
+        print_info(f"Local Model ({config.model}) is reasoning...")
+
         try:
             result = asyncio.run(runtime.run(prompt, stream_callback=printer.append))
         except Exception as exc:
@@ -99,10 +100,9 @@ def generate(
 
         printer.finalize()
         print_success("Agent finished execution:")
-    except LLMConnectionError:
-        print_error("Cannot reach Ollama. Is it running?")
-        print_info(f"Expected at: {config.ollama_url}")
-        print_info("Start with: ollama serve")
+    except FileNotFoundError as exc:
+        print_error(f"Model not found: {exc}")
+        print_info("Download it with: biopipe setup")
         raise typer.Exit(1)
     except SafetyBlockedError as exc:
         print_error(f"SAFETY BLOCKED: {exc}")
@@ -160,7 +160,7 @@ def index_security() -> None:
 
     config = Config.load()
     indexer = RAGIndexer(db_path=str(config.rag_db_path))
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         for name, url in urls.items():
             typer.echo(f"Downloading {name}...")
@@ -168,11 +168,11 @@ def index_security() -> None:
                 req = urllib.request.Request(url)
                 with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310
                     content = resp.read().decode("utf-8")
-                
+
                 path = os.path.join(tmpdir, f"{name}.md")
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(content)
-                
+
                 count = indexer.index_file(path, tool_name=name.lower())
                 typer.echo(f"  Indexed {name}: {count} chunks")
             except Exception as exc:
@@ -188,23 +188,23 @@ def explain(
 ) -> None:
     """Analyze and explain a bioinformatics pipeline script."""
     from pathlib import Path
-    
+
     print_header()
     path = Path(file_path)
     if not path.exists():
         print_error(f"File not found: {file_path}")
         raise typer.Exit(1)
-        
+
     code_content = path.read_text(encoding="utf-8")
     prompt = f"I have a bioinformatics script named {path.name}. Please explain what it does step by step, what tools it uses, and what inputs/outputs it expects. Here is the code:\n\n```{path.suffix}\n{code_content}\n```"
-    
+
     config = Config.load()
     runtime = _build_runtime(config)
-    
+
     from biopipe.core.ui import StreamingMarkdownPrinter
     printer = StreamingMarkdownPrinter()
     print_info("Analyzing script logic in air-gapped LLM...")
-    
+
     try:
         result = asyncio.run(runtime.run(prompt, stream_callback=printer.append))
     except Exception as exc:
@@ -224,27 +224,27 @@ def debug(
 ) -> None:
     """Read a crash log and suggest the fix for bio-pipelines."""
     from pathlib import Path
-    
+
     print_header()
     path = Path(log_path)
     if not path.exists():
         print_error(f"Log not found: {log_path}")
         raise typer.Exit(1)
-        
+
     # Read last N lines
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         content_lines = f.readlines()
     tail = "".join(content_lines[-lines:])
-    
+
     prompt = f"My bioinformatics pipeline crashed. Here are the last {lines} lines of the log file ({path.name}). Please identify the root cause of the error (e.g. OOM, syntax, missing index, missing file) and provide the exact commands or changes to fix it:\n\n```log\n{tail}\n```"
-    
+
     config = Config.load()
     runtime = _build_runtime(config)
-    
+
     from biopipe.core.ui import StreamingMarkdownPrinter
     printer = StreamingMarkdownPrinter()
     print_info("Debugging crash log...")
-    
+
     try:
         result = asyncio.run(runtime.run(prompt, stream_callback=printer.append))
     except Exception as exc:
@@ -263,6 +263,40 @@ def setup() -> None:
     """Download and configure a local LLM model for BioPipe-CLI."""
     from biopipe.setup_wizard import run_setup
     run_setup()
+
+
+@app.command()
+def download(
+    repo_id: str = typer.Argument(..., help="Hugging Face repository ID (e.g., Qwen/Qwen2.5-Coder-7B-Instruct-GGUF)"),
+    filename: str = typer.Argument(..., help="GGUF filename in the repository"),
+) -> None:
+    """Download a custom GGUF model from Hugging Face for local usage."""
+    from biopipe.setup_wizard import ModelInfo, download_model, save_config
+
+    # Create a temporary ModelInfo for the custom download
+    model_info = ModelInfo(
+        name="custom-download",
+        display_name=f"Custom: {filename}",
+        size_gb=0.0,  # Unknown size
+        min_ram_gb=0,
+        repo_id=repo_id,
+        filename=filename,
+        description="User-downloaded custom model.",
+    )
+
+    print_header()
+    print_info(f"Downloading custom model from Hugging Face...")
+    try:
+        path = download_model(model_info)
+        print_success(f"Successfully downloaded to: {path}")
+
+        confirm = typer.confirm("Do you want to set this model as your default local backend?")
+        if confirm:
+            save_config(str(path))
+            print_success("Configuration updated.")
+    except Exception as exc:
+        print_error(f"Download failed: {exc}")
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -306,14 +340,14 @@ def feedback(
 ) -> None:
     """Submit RLHF feedback for fine-tuning the local model."""
     from biopipe.core.rlhf import RLHFDataStore
-    
+
     if rating < 1 or rating > 5:
         print_error("Rating must be between 1 and 5")
         raise typer.Exit(1)
-        
+
     store = RLHFDataStore()
     store.log_feedback(prompt=prompt, script="<not provided in CLI currently>", rating=rating, feedback_text=text)
-    
+
     print_success("Feedback securely stored in local RLHF dataset.")
 
 
@@ -398,17 +432,17 @@ def plugins_cmd(
         plugin_name = plugin_url.rstrip("/").split("/")[-1]
         if plugin_name.endswith(".git"):
             plugin_name = plugin_name[:-4]
-            
+
         target_dir = Path(plugin_dir) / plugin_name
         if target_dir.exists():
             typer.echo(f"Plugin directory {target_dir} already exists.", err=True)
             raise typer.Exit(1)
-            
+
         typer.echo(f"Cloning {plugin_url} into {target_dir}...")
         Path(plugin_dir).mkdir(parents=True, exist_ok=True)
         try:
             subprocess.run(
-                ["git", "clone", plugin_url, str(target_dir)], 
+                ["git", "clone", plugin_url, str(target_dir)],
                 capture_output=True, text=True, check=True
             )
             typer.echo(f"Successfully installed plugin '{plugin_name}'.")

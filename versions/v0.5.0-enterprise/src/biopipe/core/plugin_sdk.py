@@ -27,6 +27,7 @@ class PluginManifest:
     version: str
     author: str
     description: str
+    manifest_path: Path | None = None
     tools: list[str] = field(default_factory=list)
     hooks: list[str] = field(default_factory=list)
     permissions: list[str] = field(default_factory=list)
@@ -113,6 +114,13 @@ class PluginLoader:
                 f"Got: '{manifest.entry_point}'. "
                 f"This prevents importing arbitrary Python modules."
             )
+
+        # Add plugin directory to sys.path
+        import sys
+        if manifest.manifest_path:
+            plugin_base = manifest.manifest_path.parent
+            if str(plugin_base) not in sys.path:
+                sys.path.insert(0, str(plugin_base))
 
         try:
             module = importlib.import_module(manifest.entry_point)
@@ -214,6 +222,7 @@ class PluginLoader:
             version=data.get("version", "0.0.0"),
             author=data.get("author", "unknown"),
             description=data.get("description", ""),
+            manifest_path=path,
             tools=data.get("tools", []),
             hooks=data.get("hooks", []),
             permissions=data.get("permissions", []),
