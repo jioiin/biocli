@@ -92,7 +92,13 @@ class PluginLoader:
         if manifest.wasm_file:
             return self._load_wasm_plugin(manifest)
 
-        # ── Python Plugin Loading (Legacy) ───────────────────────────────
+        # ── Python Plugin Loading (Trusted-only disabled by default) ─────
+        if manifest.entry_point:
+            raise PermissionDeniedError(
+                f"Plugin '{manifest.name}' uses Python entry_point plugins, which are disabled. "
+                "Use WASM plugins for sandboxed third-party execution."
+            )
+
         if not manifest.entry_point:
             raise ToolValidationError(
                 f"Plugin '{manifest.name}' has no entry_point and no wasm_file"

@@ -59,17 +59,17 @@ class CriticAgent:
             clean_text = response.content.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_text)
             
-            # Simple heuristic safety net
+            # Fail closed on malformed schema.
             if "approved" not in data or "feedback" not in data:
-                return CriticResult(True, "Auto-approved due to malformed critic JSON")
+                return CriticResult(False, "Critic response missing required fields")
             
             return CriticResult(
                 approved=bool(data["approved"]),
                 feedback=str(data["feedback"])
             )
         except json.JSONDecodeError:
-            # If the critic fails to emit valid JSON, default to True so we don't block
-            return CriticResult(True, "Auto-approved (Critic failed JSON validation)")
+            # If the critic fails to emit valid JSON, reject and request regeneration.
+            return CriticResult(False, "Critic failed JSON validation")
 
 
 class CriticHook(Hook):

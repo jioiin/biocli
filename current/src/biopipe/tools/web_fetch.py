@@ -12,7 +12,7 @@ import re
 from typing import Any
 from html.parser import HTMLParser
 
-from biopipe.core.types import Tool
+from biopipe.core.types import PermissionLevel, Tool, ToolResult
 from biopipe.core.privacy import PrivacyScrubber
 
 
@@ -170,11 +170,19 @@ class WebFetchTool(Tool):
         "required": ["url"],
     }
 
-    async def execute(self, **params: Any) -> str:
+    def required_permission(self) -> PermissionLevel:
+        return PermissionLevel.READ_ONLY
+
+    def validate_params(self, params: dict[str, Any]) -> list[str]:
+        if not isinstance(params.get("url"), str) or not params.get("url", "").strip():
+            return ["url must be a non-empty string"]
+        return []
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
         result = fetch_url(params["url"])
 
         if "error" in result:
-            return f"ERROR: {result['error']}"
+            return ToolResult(call_id="", success=False, output="", error=str(result["error"]))
 
         scrubber = PrivacyScrubber()
         content = scrubber.redact(result['content'])
@@ -185,4 +193,4 @@ class WebFetchTool(Tool):
             f"Size: {result.get('size', 0):,} bytes",
             f"\n--- Content ---\n{content}",
         ]
-        return "\n".join(parts)
+        return ToolResult(call_id="", success=True, output="\n".join(parts))

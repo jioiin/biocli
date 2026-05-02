@@ -42,7 +42,7 @@ class SessionManager:
         """Compress old messages when approaching token limit.
 
         Keeps: system prompt + last 3 user/assistant pairs.
-        Summarizes everything else into one system message.
+        Summarizes everything else into one assistant message.
         """
         if self.token_count() < int(self._max_tokens * 0.75):
             return
@@ -59,11 +59,7 @@ class SessionManager:
             summary_parts.append(f"[{msg.role.value}]: {msg.content[:200]}")
         summary_text = "Previous conversation summary:\n" + "\n".join(summary_parts)
 
-        self._messages = [
-            system,
-            Message(role=Role.SYSTEM, content=summary_text),
-            *recent,
-        ]
+        self._messages = [system, Message(role=Role.ASSISTANT, content=summary_text), *recent]
 
     def export(self) -> dict[str, Any]:
         """Serialize session for persistence."""

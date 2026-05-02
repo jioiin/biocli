@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from biopipe.core.types import Tool
+from biopipe.core.types import PermissionLevel, Tool, ToolResult
 from biopipe.core.safety import SafetyValidator
 from biopipe.core.privacy import PrivacyScrubber
 
@@ -235,7 +235,19 @@ class ShellExecTool(Tool):
         "required": ["command"],
     }
 
-    async def execute(self, **params: Any) -> str:
+    def required_permission(self) -> PermissionLevel:
+        return PermissionLevel.GENERATE
+
+    def validate_params(self, params: dict[str, Any]) -> list[str]:
+        errors: list[str] = []
+        if not isinstance(params.get("command"), str) or not params.get("command", "").strip():
+            errors.append("command must be a non-empty string")
+        timeout = params.get("timeout", DEFAULT_TIMEOUT)
+        if not isinstance(timeout, int) or timeout <= 0:
+            errors.append("timeout must be a positive integer")
+        return errors
+
+    async def execute(self, params: dict[str, Any]) -> ToolResult:
         result = await run_command(
             command=params["command"],
             cwd=params.get("cwd"),
@@ -243,7 +255,7 @@ class ShellExecTool(Tool):
         )
 
         if "error" in result:
-            return f"ERROR: {result['error']}"
+            return ToolResult(call_id="", success=False, output="", error=str(result["error"]))
 
         parts = []
         if result["exit_code"] == 0:
@@ -261,4 +273,9 @@ class ShellExecTool(Tool):
         if result["stderr"] and result["exit_code"] != 0:
             parts.append(f"\n--- stderr ---\n{result['stderr']}")
 
-        return "\n".join(parts)
+        return ToolResult(
+            call_id="",
+            success=result["exit_code"] == 0,
+            output="\n".join(parts),
+            error=None if result["exit_code"] == 0 else result.get("stderr", ""),
+        )
