@@ -54,7 +54,13 @@ class AgentLoop:
         self._debugger = TimeTravelDebugger(session)
         self._critic = CriticAgent(llm)
 
-    async def run(self, user_input: str, stream_callback: Callable[[str], None] | None = None) -> str:
+    async def run(
+        self,
+        user_input: str,
+        stream_callback: Callable[[str], None] | None = None,
+        plan_only: bool = False,
+        require_plan_approval: bool = False,
+    ) -> str:
         """Run the full agent loop. Returns final text output."""
         sandboxed = self._session.add_user_message(user_input)
         self._logger.log("user_input", {
@@ -62,9 +68,21 @@ class AgentLoop:
             "injection_score": sandboxed.injection_score,
         })
 
+        planning_mode = plan_only or require_plan_approval
+
         # RAG: retrieve relevant documentation and inject into context
         self._inject_rag_context(user_input)
+        if planning_mode:
+            self._session.add(Message(
+                role=Role.SYSTEM,
+                content=(
+                    "First phase: output ONLY a JSON execution plan with fields: "
+                    "step, tool, input, output, resources, risks."
+                ),
+            ))
 
+        plan_json: str | None = None
+        plan_validated = False
         for iteration in range(self._max_iterations):
             # Save state for potential Time-Travel rewind by the Critic
             self._debugger.take_snapshot(iteration)
@@ -81,6 +99,25 @@ class AgentLoop:
             await self._hooks.fire(HookPoint.AFTER_LLM_CALL, {"response": response})
 
             if not response.tool_calls:
+                if planning_mode and plan_json is None:
+                    plan_json = response.content
+                    plan_report = self._safety.validate_plan(plan_json)
+                    self._logger.log("plan_safety_check", {
+                        "passed": plan_report.passed,
+                        "violations": len(plan_report.violations),
+                    })
+                    if not plan_report.passed:
+                        raise SafetyBlockedError(
+                            f"Plan blocked: {[v.description for v in plan_report.violations if v.severity == 'critical']}"
+                        )
+                    plan_validated = True
+                    if plan_only or require_plan_approval:
+                        return plan_json
+                    self._session.add(Message(role=Role.SYSTEM, content="Plan validated. Now generate the final executable script only."))
+                    continue
+
+                if planning_mode and not plan_validated:
+                    raise SafetyBlockedError("Plan must be validated before script generation.")
                 report = self._validate_output(response.content)
                 if not report.passed:
                     raise SafetyBlockedError(

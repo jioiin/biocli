@@ -26,6 +26,8 @@ MALICIOUS_PATH = "#!/bin/bash\nset -euo pipefail\n# BioPipe-CLI Generated Script
 MALICIOUS_OBFUSCATED = "#!/bin/bash\nset -euo pipefail\n# BioPipe-CLI Generated Script\necho cm0= | base64 --decode | bash"
 MALICIOUS_PIP = "#!/bin/bash\nset -euo pipefail\n# BioPipe-CLI Generated Script\npip install evil-package"
 MALICIOUS_PYTHON = "import os\nimport subprocess\nos.system('rm -rf /')"
+RNA_SEQ_PLAN = """{"plan":[{"step":"QC","tool":"fastqc","input":["reads_1.fq.gz","reads_2.fq.gz"],"output":["qc/"],"resources":{"cpu":"4","memory":"8G","time":"01:00:00"},"risks":["low quality reads"]},{"step":"Align","tool":"hisat2","input":["reads_1.fq.gz","reads_2.fq.gz","hg38_index"],"output":["aligned.bam"],"resources":{"cpu":"8","memory":"32G","time":"04:00:00"},"risks":["wrong strandedness"]}]}"""
+WGS_PLAN = """{"plan":[{"step":"Map","tool":"bwa","input":["sample_R1.fastq.gz","sample_R2.fastq.gz","hg38.fa"],"output":["sample.bam"],"resources":{"cpu":"16","memory":"64G","time":"08:00:00"},"risks":["reference mismatch"]},{"step":"Variant calling","tool":"gatk","input":["sample.bam","known_sites.vcf"],"output":["sample.vcf.gz"],"resources":{"cpu":"8","memory":"32G","time":"06:00:00"},"risks":["false positives"]}]}"""
 
 
 def _make_runtime(response: str) -> AgentRuntime:
@@ -93,3 +95,15 @@ class TestCoreHasNoBuiltinTools:
     def test_shutdown(self) -> None:
         runtime = _make_runtime("test")
         asyncio.run(runtime.shutdown())
+
+
+class TestPlanningGolden:
+    def test_rnaseq_plan_only(self) -> None:
+        runtime = _make_runtime(RNA_SEQ_PLAN)
+        result = asyncio.run(runtime.run("RNA-seq pipeline", plan_only=True))
+        assert result == RNA_SEQ_PLAN
+
+    def test_wgs_plan_only(self) -> None:
+        runtime = _make_runtime(WGS_PLAN)
+        result = asyncio.run(runtime.run("WGS pipeline", plan_only=True))
+        assert result == WGS_PLAN

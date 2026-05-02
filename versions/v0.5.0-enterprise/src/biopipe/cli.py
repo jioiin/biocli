@@ -74,6 +74,8 @@ def generate(
     prompt: str = typer.Argument(..., help="Natural language pipeline request"),
     model: str = typer.Option(None, "--model", "-m", help="GGUF model filename"),
     output_dir: str = typer.Option(None, "--output-dir", "-o", help="Output directory"),
+    plan_only: bool = typer.Option(False, "--plan-only", help="Generate and validate plan only (no script generation)"),
+    require_plan_approval: bool = typer.Option(False, "--require-plan-approval", help="Stop after validated plan for manual approval"),
 ) -> None:
     """Generate a bioinformatics pipeline script using a local model."""
     # Config is frozen — set env vars before loading
@@ -93,7 +95,14 @@ def generate(
         print_info(f"Local Model ({config.model}) is reasoning...")
 
         try:
-            result = asyncio.run(runtime.run(prompt, stream_callback=printer.append))
+            result = asyncio.run(
+                runtime.run(
+                    prompt,
+                    stream_callback=printer.append,
+                    plan_only=plan_only,
+                    require_plan_approval=require_plan_approval,
+                )
+            )
         except Exception as exc:
             printer.finalize()
             raise exc
