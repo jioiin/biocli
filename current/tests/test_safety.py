@@ -19,6 +19,11 @@ class TestBlocklist:
         assert not report.passed
         assert any("deletion" in v.description.lower() for v in report.violations)
 
+    def test_rm_long_flags_blocked(self, validator: SafetyValidator) -> None:
+        report = validator.validate("rm --recursive --force /tmp/data")
+        assert not report.passed
+        assert any("deletion" in v.description.lower() for v in report.violations)
+
     def test_sudo_blocked(self, validator: SafetyValidator) -> None:
         report = validator.validate("sudo apt-get update")
         assert not report.passed

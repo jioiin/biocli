@@ -151,7 +151,7 @@ class AgentLoop:
 
     def _validate_output(self, content: str) -> SafetyReport:
         """Detect language and validate through safety."""
-        language = "python" if "import " in content and "def " in content else "bash"
+        language = "python" if ("import " in content or "def " in content) else "bash"
         report = self._safety.validate(content, language)
         self._logger.log("safety_check", {
             "passed": report.passed,
