@@ -5,7 +5,7 @@ from biopipe.core.session import SessionManager
 from biopipe.core.config import Config
 from biopipe.core.plugin_sdk import PluginLoader, PluginManifest
 from biopipe.core.errors import ToolValidationError
-from biopipe.core.types import Role, Message
+from biopipe.core.types import Role, Message, PermissionLevel
 
 
 # === Session Injection Defense ===
@@ -81,6 +81,13 @@ class TestCloudModelBlocking:
         with pytest.raises(ValueError, match="localhost"):
             Config.load()
         os.environ.pop("BIOPIPE_OLLAMA_URL", None)
+
+    def test_invalid_permission_level_fallbacks_to_generate(self, monkeypatch, caplog) -> None:
+        monkeypatch.setenv("BIOPIPE_PERMISSION_LEVEL", "foo")
+        with caplog.at_level("WARNING"):
+            config = Config.load()
+        assert config.permission_level == PermissionLevel.GENERATE
+        assert "Invalid BIOPIPE_PERMISSION_LEVEL" in caplog.text
 
 
 # === Config Immutability ===
