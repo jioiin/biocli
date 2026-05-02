@@ -6,6 +6,7 @@ Priority: CLI args > env vars > project biopipe.toml > global config > defaults.
 from __future__ import annotations
 
 import os
+from urllib.parse import urlparse
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -60,8 +61,10 @@ class Config:
         env_output = os.getenv("BIOPIPE_OUTPUT_DIR")
         output_dir = Path(env_output) if env_output else Path("./biopipe_output")
 
-        # Validate ollama_url: localhost only
-        if not any(h in ollama_url for h in ("localhost", "127.0.0.1", "::1")):
+        # Validate ollama_url: parsed hostname must be local-only
+        parsed_url = urlparse(ollama_url)
+        hostname = parsed_url.hostname
+        if hostname not in {"localhost", "127.0.0.1", "::1"}:
             raise ValueError(
                 f"ollama_url must be localhost. Got: {ollama_url}. "
                 f"Remote URLs leak prompts to external servers."
