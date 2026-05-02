@@ -76,7 +76,8 @@ class AgentLoop:
             )
 
             tools = self._router._registry.list_schemas()
-            response = await self._llm.generate(ctx["messages"], tools, stream_callback=stream_callback)
+            # Security boundary: buffer model output first, then validate before rendering.
+            response = await self._llm.generate(ctx["messages"], tools, stream_callback=None)
             self._logger.log("llm_response", {"has_tool_calls": bool(response.tool_calls)})
 
             await self._hooks.fire(HookPoint.AFTER_LLM_CALL, {"response": response})
@@ -105,6 +106,8 @@ class AgentLoop:
                 # If approved, proceed normally
                 self._logger.log("critic_approved", {})
                 self._session.add(response)
+                if stream_callback:
+                    stream_callback(response.content)
                 return response.content
 
             results = await self._scheduler.schedule(response.tool_calls)
