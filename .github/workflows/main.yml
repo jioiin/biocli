@@ -50,20 +50,27 @@ jobs:
             exit 0
           fi
 
+          if [[ "$FILE" != "${FILE##*/}" ]] || [[ ! "$FILE" =~ ^[A-Za-z0-9._-]+\.rar$ ]]; then
+            echo "Unsafe archive filename: $FILE"
+            exit 1
+          fi
+
           echo "Using archive: $FILE"
           echo "file=$FILE" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Extract main RAR
         if: steps.archive.outputs.skip != 'true'
+        env:
+          ARCHIVE_FILE: ${{ steps.archive.outputs.file }}
         run: |
           rm -rf _extract_work current versions archives
           mkdir -p _extract_work/raw current versions archives
 
           if command -v unrar >/dev/null 2>&1; then
-            unrar x -o+ "${{ steps.archive.outputs.file }}" _extract_work/raw/
+            unrar x -o+ "$ARCHIVE_FILE" _extract_work/raw/
           else
-            7z x -y "${{ steps.archive.outputs.file }}" -o_extract_work/raw
+            7z x -y "$ARCHIVE_FILE" -o_extract_work/raw
           fi
 
       - name: Process extracted files
