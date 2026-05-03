@@ -57,6 +57,24 @@ VERIFIED_MODELS: list[ModelInfo] = [
 
 MODELS_DIR = Path.home() / ".biopipe" / "models"
 CONFIG_FILE = Path.home() / ".biopipe" / "config.json"
+OFFLINE_ENV_VAR = "BIOPIPE_OFFLINE"
+
+
+def _env_offline_enabled() -> bool:
+    """Return True when offline mode is enabled by environment."""
+    return os.getenv(OFFLINE_ENV_VAR, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def validate_local_model_path(model_path: str) -> Path:
+    """Validate and normalize a pre-downloaded local model path."""
+    path = Path(model_path).expanduser().resolve()
+    if not path.exists():
+        raise ValueError(f"Model file not found: {path}")
+    if not path.is_file():
+        raise ValueError(f"Model path must point to a file: {path}")
+    if path.suffix.lower() != ".gguf":
+        raise ValueError(f"Model file must have .gguf extension: {path}")
+    return path
 
 
 def get_system_ram_gb() -> int:
@@ -77,12 +95,15 @@ def get_system_ram_gb() -> int:
     return 8  # conservative default
 
 
-def download_model(model: ModelInfo) -> Path:
+def download_model(model: ModelInfo, offline: bool = False) -> Path:
     """Download GGUF model from HuggingFace.
 
     Uses huggingface_hub if available, falls back to urllib.
     Returns path to downloaded file.
     """
+    if offline:
+        raise RuntimeError("Offline mode forbids model downloads.")
+
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     dest = MODELS_DIR / model.filename
 
@@ -124,13 +145,35 @@ def save_config(model_path: str) -> None:
     print(f"  Config saved: {CONFIG_FILE}")
 
 
-def run_setup() -> None:
+def run_setup(offline: bool = False, model_path: str | None = None) -> None:
     """Interactive setup wizard."""
+    offline = offline or _env_offline_enabled()
+
     print()
     print("BioPipe-CLI Zero-Config Setup (100% Воздушный зазор)")
     print("=" * 60)
     print("Гарантия: Все веса загружаются локально, телеметрия отключена.")
+    if offline:
+        print("Режим: OFFLINE (сетевые загрузки и pip install отключены)")
     print()
+
+    if offline:
+        if not model_path:
+            print("ERROR: Offline mode requires --model-path to a pre-downloaded .gguf file.")
+            print("Example: biopipe setup --offline --model-path /models/qwen2.5-coder-14b.gguf")
+            sys.exit(1)
+
+        try:
+            validated_path = validate_local_model_path(model_path)
+        except ValueError as exc:
+            print(f"ERROR: {exc}")
+            sys.exit(1)
+
+        print(f"Validated local model: {validated_path}")
+        save_config(str(validated_path))
+        print()
+        print("Offline setup complete. Network operations were skipped.")
+        return
 
     # Detect RAM
     ram = get_system_ram_gb()
