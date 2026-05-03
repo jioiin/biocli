@@ -1,11 +1,16 @@
 """Tests for security hardening: session injection, cloud models, plugin entry_point."""
 
+import hashlib
+import subprocess
+from pathlib import Path
+
 import pytest
 from biopipe.core.session import SessionManager
 from biopipe.core.config import Config
 from biopipe.core.plugin_sdk import PluginLoader, PluginManifest
 from biopipe.core.errors import ToolValidationError
 from biopipe.core.types import Role, Message
+from biopipe.genomes.manager import GENOME_REGISTRY, GenomeManager
 
 
 # === Session Injection Defense ===
@@ -160,3 +165,104 @@ class TestPluginEntryPointSecurity:
         # Will fail on ImportError (package doesn't exist), not on validation
         with pytest.raises(ToolValidationError, match="Cannot import"):
             loader.load_plugin(manifest)
+
+
+class TestGenomeDownloadIntegrity:
+    def test_secure_profile_blocks_unsupported_checksum(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = GenomeManager(base_dir=tmp_path)
+        genome = "test-unsupported"
+        registry = {
+            "url": "https://example.org/ref.fa.gz",
+            "description": "test",
+            "size_gb": 0.001,
+            "sha256": None,
+            "secure_supported": False,
+        }
+        monkeypatch.setitem(GENOME_REGISTRY, genome, registry)
+
+        def fake_run(cmd: list[str], check: bool, timeout: int) -> subprocess.CompletedProcess[str]:
+            if cmd[0] in {"wget", "curl"}:
+                out = cmd[3] if cmd[0] == "wget" else cmd[4]
+                with open(out, "wb") as f:
+                    f.write(b"fake-gz")
+                return subprocess.CompletedProcess(cmd, 0)
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        with pytest.raises(ValueError, match="Secure profile unsupported"):
+            manager.download(genome, secure_profile=True)
+
+    def test_sha256_mismatch_removes_archive(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = GenomeManager(base_dir=tmp_path)
+        genome = "test-mismatch"
+        registry = {
+            "url": "https://example.org/ref.fa.gz",
+            "description": "test",
+            "size_gb": 0.001,
+            "sha256": "0" * 64,
+            "secure_supported": True,
+        }
+        monkeypatch.setitem(GENOME_REGISTRY, genome, registry)
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], check: bool, timeout: int) -> subprocess.CompletedProcess[str]:
+            calls.append(cmd)
+            if cmd[0] in {"wget", "curl"}:
+                out = cmd[3] if cmd[0] == "wget" else cmd[4]
+                with open(out, "wb") as f:
+                    f.write(b"definitely-not-matching")
+                return subprocess.CompletedProcess(cmd, 0)
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        with pytest.raises(ValueError, match="SHA256 mismatch"):
+            manager.download(genome)
+
+        assert all(cmd[0] != "gunzip" for cmd in calls)
+        assert not (tmp_path / genome / f"{genome}.fa.gz").exists()
+
+    def test_sha256_match_decompresses_and_indexes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = GenomeManager(base_dir=tmp_path)
+        genome = "test-match"
+        payload = b"valid-fake-gz"
+        registry = {
+            "url": "https://example.org/ref.fa.gz",
+            "description": "test",
+            "size_gb": 0.001,
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "secure_supported": True,
+        }
+        monkeypatch.setitem(GENOME_REGISTRY, genome, registry)
+
+        def fake_run(cmd: list[str], check: bool, timeout: int) -> subprocess.CompletedProcess[str]:
+            if cmd[0] in {"wget", "curl"}:
+                out = cmd[3] if cmd[0] == "wget" else cmd[4]
+                with open(out, "wb") as f:
+                    f.write(payload)
+                return subprocess.CompletedProcess(cmd, 0)
+            if cmd[0] == "gunzip":
+                gz_path = cmd[2]
+                fa_path = gz_path.removesuffix(".gz")
+                with open(gz_path, "rb") as src:
+                    data = src.read()
+                with open(fa_path, "wb") as dst:
+                    dst.write(data)
+                Path(gz_path).unlink()
+                return subprocess.CompletedProcess(cmd, 0)
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(manager, "_index_genome", lambda genome, fasta, callback=None: None)
+
+        result = manager.download(genome)
+        assert result is not None
+        assert result.fasta.exists()
