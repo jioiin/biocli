@@ -11,6 +11,7 @@ Validates:
 
 import json
 import asyncio
+import importlib.util
 import pytest
 from pathlib import Path
 
@@ -21,6 +22,10 @@ from biopipe.core.errors import ToolValidationError
 
 DEMO_PLUGIN_DIR = Path(__file__).parent.parent / "plugins"
 DEMO_WAT_PATH = DEMO_PLUGIN_DIR / "biopipe_wasm_demo" / "plugin.wat"
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec("wasmtime") is None,
+    reason="wasmtime is not installed",
+)
 
 
 class TestWasmRunner:

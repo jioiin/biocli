@@ -43,14 +43,21 @@ _WHITELIST: frozenset[str] = frozenset({
     "git",
 })
 
-# Subcommands that are allowed for multi-command tools
-_SUBCOMMAND_WHITELIST: dict[str, frozenset[str]] = {
-    "samtools": frozenset({"--version", "flagstat", "idxstats", "stats", "view -c"}),
-    "bcftools": frozenset({"--version", "stats", "query"}),
-    "git": frozenset({"status", "log", "diff", "branch", "remote", "--version"}),
-    "conda": frozenset({"list", "info", "env list"}),
-    "module": frozenset({"avail", "list", "spider"}),
-    "scontrol": frozenset({"show partition", "show node"}),
+# Subcommand prefixes that are allowed for multi-command tools.
+# Rules are matched against tokens after the base command.
+_SUBCOMMAND_WHITELIST: dict[str, frozenset[tuple[str, ...]]] = {
+    "samtools": frozenset({
+        ("--version",),
+        ("view", "-c"),
+        ("flagstat",),
+        ("idxstats",),
+        ("stats",),
+    }),
+    "bcftools": frozenset({("--version",), ("stats",), ("query",)}),
+    "git": frozenset({("status",), ("log",), ("diff",), ("branch",), ("remote",), ("--version",)}),
+    "conda": frozenset({("list",), ("info",), ("env", "list")}),
+    "module": frozenset({("avail",), ("list",), ("spider",)}),
+    "scontrol": frozenset({("show", "partition"), ("show", "node")}),
 }
 
 # Flags that are NEVER allowed regardless of command
@@ -90,13 +97,17 @@ class ShellTool:
 
         # Gate 3: subcommand check for multi-command tools
         if base_cmd in _SUBCOMMAND_WHITELIST and len(parts) > 1:
-            subcmd = parts[1]
+            cmd_tail = tuple(parts[1:])
             allowed_subs = _SUBCOMMAND_WHITELIST[base_cmd]
-            if subcmd not in allowed_subs and not subcmd.startswith("--version"):
+            if not any(
+                len(cmd_tail) >= len(allowed_prefix)
+                and cmd_tail[: len(allowed_prefix)] == allowed_prefix
+                for allowed_prefix in allowed_subs
+            ):
                 return ShellResult(
                     command, "",
-                    f"Subcommand '{base_cmd} {subcmd}' not allowed. "
-                    f"Allowed: {', '.join(sorted(allowed_subs))}",
+                    f"Subcommand '{base_cmd} {' '.join(parts[1:])}' not allowed. "
+                    f"Allowed: {', '.join(' '.join(rule) for rule in sorted(allowed_subs))}",
                     -1, False
                 )
 
