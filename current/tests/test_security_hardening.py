@@ -6,6 +6,7 @@ from biopipe.core.config import Config
 from biopipe.core.plugin_sdk import PluginLoader, PluginManifest
 from biopipe.core.errors import ToolValidationError
 from biopipe.core.types import Role, Message
+from biopipe.core.shell_tool import ShellTool
 
 
 # === Session Injection Defense ===
@@ -160,3 +161,19 @@ class TestPluginEntryPointSecurity:
         # Will fail on ImportError (package doesn't exist), not on validation
         with pytest.raises(ToolValidationError, match="Cannot import"):
             loader.load_plugin(manifest)
+
+
+# === Shell Tool find Hardening ===
+
+class TestFindHardening:
+    def test_find_delete_action_blocked(self) -> None:
+        shell = ShellTool()
+        result = shell.run("find . -delete")
+        assert not result.allowed
+        assert "blocked" in result.stderr
+
+    def test_find_execdir_action_blocked(self) -> None:
+        shell = ShellTool()
+        result = shell.run("find . -execdir ls {} +")
+        assert not result.allowed
+        assert "blocked" in result.stderr
